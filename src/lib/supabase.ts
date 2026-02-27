@@ -152,7 +152,7 @@ export const signUp = async (
   email: string,
   password: string,
   nome: string
-): Promise<{ user: User | null; error: Error | null }> => {
+): Promise<{ user: User | null; requiresEmailConfirmation: boolean; error: Error | null }> => {
   try {
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -179,10 +179,11 @@ export const signUp = async (
         email: data.user.email!,
         created_at: data.user.created_at,
       },
+      requiresEmailConfirmation: !data.session,
       error: null,
     };
   } catch (error) {
-    return { user: null, error: error as Error };
+    return { user: null, requiresEmailConfirmation: false, error: error as Error };
   }
 };
 

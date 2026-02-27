@@ -58,7 +58,16 @@ export default function Register() {
     }
 
     try {
-      await register(formData.email, formData.password, formData.nome);
+      const { requiresEmailConfirmation } = await register(formData.email, formData.password, formData.nome);
+
+      if (requiresEmailConfirmation) {
+        navigate(ROUTE_PATHS.LOGIN, {
+          replace: true,
+          state: { message: 'Conta criada com sucesso! Verifique seu email para confirmar a conta e depois faça login.' },
+        });
+        return;
+      }
+
       navigate(ROUTE_PATHS.DASHBOARD);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar conta. Tente novamente.');
@@ -108,6 +117,7 @@ export default function Register() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
+
 
               <div className="space-y-2">
                 <Label htmlFor="nome">Nome Completo</Label>

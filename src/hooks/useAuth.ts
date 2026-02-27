@@ -17,7 +17,7 @@ interface AuthState {
 
 interface AuthActions {
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, nome: string) => Promise<void>;
+  register: (email: string, password: string, nome: string) => Promise<{ requiresEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
   isAdmin: () => boolean;
   refreshUser: () => Promise<void>;
@@ -69,14 +69,15 @@ export const useAuth = (): AuthState & AuthActions => {
 
   const register = async (email: string, password: string, nome: string) => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
-    const { user, error } = await supabaseSignUp(email, password, nome);
-    
+    const { error, requiresEmailConfirmation } = await supabaseSignUp(email, password, nome);
+
     if (error) {
       setState((prev) => ({ ...prev, loading: false, error }));
       throw error;
     }
 
     await refreshUser();
+    return { requiresEmailConfirmation };
   };
 
   const logout = async () => {

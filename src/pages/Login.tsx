@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { springPresets } from '@/lib/motion';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, loading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,6 +23,14 @@ export default function Login() {
     email?: string;
     password?: string;
   }>({});
+
+  const infoMessage =
+    typeof location.state === 'object' &&
+    location.state !== null &&
+    'message' in location.state &&
+    typeof (location.state as { message?: unknown }).message === 'string'
+      ? (location.state as { message: string }).message
+      : null;
 
   const validateForm = (): boolean => {
     const errors: { email?: string; password?: string } = {};
@@ -93,6 +102,12 @@ export default function Login() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {infoMessage && (
+                <Alert>
+                  <AlertDescription>{infoMessage}</AlertDescription>
+                </Alert>
+              )}
+
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
