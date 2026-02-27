@@ -178,24 +178,94 @@ const getOrCreateAula = async (
       p_titulo: titulo,
     });
 
-    if (error) throw error;
-    return data;
+    if (!error && data) return data;
+  } catch {
+    // fallback below
+  }
+
+  try {
+    let findQuery = await supabase
+      .from('aulas')
+      .select('id')
+      .eq('materia_id', materiaId)
+      .eq('numero_aula', numeroAula)
+      .eq('numero_subaula', numeroSubaula)
+      .maybeSingle();
+
+    if (findQuery.error?.code === '42703') {
+      findQuery = await supabase
+        .from('aulas')
+        .select('id')
+        .eq('materia_id', materiaId)
+        .eq('aula_numero', numeroAula)
+        .eq('assunto_numero', numeroSubaula)
+        .maybeSingle();
+    }
+
+    if (findQuery.data?.id) return findQuery.data.id;
+
+    const payload: Record<string, unknown> = {
+      materia_id: materiaId,
+      numero_aula: numeroAula,
+      numero_subaula: numeroSubaula,
+      titulo,
+      ordem: numeroAula * 100 + numeroSubaula,
+    };
+
+    let insertResult = await supabase.from('aulas').insert(payload as any).select('id').single();
+
+    if (insertResult.error?.code === '42703') {
+      const missingColumn = getMissingColumnName(insertResult.error.message);
+      if (missingColumn === 'numero_aula') {
+        delete payload.numero_aula;
+        delete payload.numero_subaula;
+        payload.aula_numero = numeroAula;
+        payload.assunto_numero = numeroSubaula;
+      } else if (missingColumn) {
+        delete payload[missingColumn];
+      }
+      insertResult = await supabase.from('aulas').insert(payload as any).select('id').single();
+    }
+
+    if (insertResult.error) throw insertResult.error;
+    return insertResult.data?.id || null;
   } catch (error) {
     console.error('Erro ao criar/buscar aula:', error);
     return null;
   }
 };
 
+
+const getMissingColumnName = (message?: string): string | null => {
+  if (!message) return null;
+  return message.match(/column\s+[a-zA-Z0-9_]+\.([a-zA-Z0-9_]+)/i)?.[1] || null;
+};
+
 const insertVideo = async (aulaId: string, titulo: string, url: string): Promise<boolean> => {
   try {
-    const { error } = await supabase.from('videos').insert({
+    const payload: Record<string, unknown> = {
       aula_id: aulaId,
       titulo,
       url,
       ordem: 1,
-    } as any);
+    };
 
-    return !error;
+    let response = await supabase.from('videos').insert(payload as any);
+
+    if (response.error?.code === '42703') {
+      const missingColumn = getMissingColumnName(response.error.message);
+
+      if (missingColumn === 'url') {
+        delete payload.url;
+        payload.url_storage = url;
+      } else if (missingColumn) {
+        delete payload[missingColumn];
+      }
+
+      response = await supabase.from('videos').insert(payload as any);
+    }
+
+    return !response.error;
   } catch (error) {
     console.error('Erro ao inserir vídeo:', error);
     return false;
@@ -229,11 +299,16 @@ const insertMaterial = async ({
     let response = await supabase.from('materiais_estudo').insert(basePayload as any);
 
     if (response.error?.code === '42703') {
-      const missingColumn = response.error.message.match(/column\s+materiais_estudo\.([a-zA-Z0-9_]+)/i)?.[1];
-      if (missingColumn) {
+      const missingColumn = getMissingColumnName(response.error.message);
+
+      if (missingColumn === 'url') {
+        delete basePayload.url;
+        basePayload.url_storage = url;
+      } else if (missingColumn) {
         delete basePayload[missingColumn];
-        response = await supabase.from('materiais_estudo').insert(basePayload as any);
       }
+
+      response = await supabase.from('materiais_estudo').insert(basePayload as any);
     }
 
     return !response.error;
@@ -340,7 +415,7 @@ export const processFileUpload = async ({
         if (fileType === 'video') {
           const videoInserted = await insertVideo(aulaId, aulaInfo.titulo, uploadResult.url!);
           if (!videoInserted) {
-            message += ' (erro ao associar vídeo)';
+            message += ' (erro ao associar vídeo na tabela videos)';
           }
         } else {
           const materialInserted = await insertMaterial({
@@ -351,7 +426,7 @@ export const processFileUpload = async ({
             url: uploadResult.url!,
           });
           if (!materialInserted) {
-            message += ' (erro ao associar material)';
+            message += ' (erro ao associar material na tabela materiais_estudo)';
           }
         }
       } else {
