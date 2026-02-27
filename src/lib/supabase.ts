@@ -89,6 +89,24 @@ export const uploadFile = async (
   }
 };
 
+
+type ProfileLookupColumn = 'user_id' | 'id';
+let preferredProfileLookupColumn: ProfileLookupColumn | null = null;
+
+const isMissingColumnError = (error: { code?: string } | null): boolean => {
+  return error?.code === '42703';
+};
+
+const fetchProfileByColumn = async (column: ProfileLookupColumn, userId: string) => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq(column, userId)
+    .maybeSingle();
+
+  return { data, error };
+};
+
 export const getCurrentUser = async (): Promise<{
   user: User | null;
   profile: Profile | null;
@@ -100,27 +118,43 @@ export const getCurrentUser = async (): Promise<{
     if (authError) throw authError;
     if (!user) return { user: null, profile: null, error: null };
 
-    const { data: profileByUserId, error: profileByUserIdError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    let profile: Profile | null = null;
+    let profileError: { code?: string } | null = null;
 
-    // Alguns projetos usam `profiles.id = auth.users.id` em vez de `profiles.user_id`.
-    // Fazemos fallback para evitar bloquear o login quando o schema difere.
-    const { data: profileById, error: profileByIdError } = profileByUserId
-      ? { data: null, error: null }
-      : await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle();
+    if (preferredProfileLookupColumn) {
+      const lookup = await fetchProfileByColumn(preferredProfileLookupColumn, user.id);
+      profile = lookup.data as Profile | null;
+      profileError = lookup.error;
+    } else {
+      const profileByUserId = await fetchProfileByColumn('user_id', user.id);
 
-    const profile = profileByUserId ?? profileById;
-    const profileError = profileByUserIdError ?? profileByIdError;
+      if (isMissingColumnError(profileByUserId.error)) {
+        preferredProfileLookupColumn = 'id';
+      } else {
+        preferredProfileLookupColumn = 'user_id';
+        profile = profileByUserId.data as Profile | null;
+        profileError = profileByUserId.error;
+      }
 
-    // Se não existir perfil, ainda mantemos o usuário autenticado para evitar loop de login.
-    if (profileError && profileError.code !== 'PGRST116') {
+      if (!profile && preferredProfileLookupColumn === 'id') {
+        const profileById = await fetchProfileByColumn('id', user.id);
+        profile = profileById.data as Profile | null;
+        profileError = profileById.error;
+      }
+
+      if (!profile && preferredProfileLookupColumn === 'user_id') {
+        const fallbackById = await fetchProfileByColumn('id', user.id);
+        if (!isMissingColumnError(fallbackById.error)) {
+          profile = fallbackById.data as Profile | null;
+          if (profile) {
+            preferredProfileLookupColumn = 'id';
+            profileError = fallbackById.error;
+          }
+        }
+      }
+    }
+
+    if (profileError && profileError.code !== 'PGRST116' && !isMissingColumnError(profileError)) {
       console.error('Erro ao buscar perfil do usuário:', profileError);
     }
 
@@ -181,13 +215,26 @@ export const signUp = async (
     if (error) throw error;
     if (!data.user) throw new Error('Erro ao criar usuário');
 
-    const { error: profileError } = await supabase.from('profiles').insert({
-      user_id: data.user.id,
+    const defaultProfilePayload = {
       role: 'student' as UserRole,
       nome,
+    };
+
+    const profileInsertByUserId = await supabase.from('profiles').insert({
+      ...defaultProfilePayload,
+      user_id: data.user.id,
     } as any);
 
-    if (profileError) throw profileError;
+    if (profileInsertByUserId.error && profileInsertByUserId.error.code === '42703') {
+      const profileInsertById = await supabase.from('profiles').insert({
+        ...defaultProfilePayload,
+        id: data.user.id,
+      } as any);
+
+      if (profileInsertById.error) throw profileInsertById.error;
+    } else if (profileInsertByUserId.error) {
+      throw profileInsertByUserId.error;
+    }
 
     return {
       user: {

@@ -16,6 +16,18 @@ interface UploadManagerProps {
   materiaId?: string;
 }
 
+
+const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+
+  return 'Erro desconhecido';
+};
+
 interface UploadItem {
   file: File;
   status: 'pending' | 'uploading' | 'success' | 'error';
@@ -73,20 +85,35 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
 
     try {
       const ordemNumber = newMateriaOrdem.trim() ? Number(newMateriaOrdem) : materias.length + 1;
+      const materiaPayload: Record<string, string | number | null> = {
+        nome,
+        descricao: newMateriaDescricao.trim() || null,
+        ordem: Number.isFinite(ordemNumber) ? ordemNumber : materias.length + 1,
+      };
 
-      const { data, error } = await supabase
+      let response = await supabase
         .from('materias')
-        .insert({
-          nome,
-          descricao: newMateriaDescricao.trim() || null,
-          ordem: Number.isFinite(ordemNumber) ? ordemNumber : materias.length + 1,
-        } as any)
+        .insert(materiaPayload as any)
         .select('*')
         .single();
 
-      if (error) throw error;
+      if (response.error?.code === '42703') {
+        const missingColumn = response.error.message.match(/column\s+materias\.([a-zA-Z0-9_]+)/i)?.[1];
 
-      const createdMateria = data as Materia;
+        if (missingColumn) {
+          delete materiaPayload[missingColumn];
+
+          response = await supabase
+            .from('materias')
+            .insert(materiaPayload as any)
+            .select('*')
+            .single();
+        }
+      }
+
+      if (response.error) throw response.error;
+
+      const createdMateria = response.data as Materia;
       setSelectedMateriaId(createdMateria.id);
       setNewMateriaNome('');
       setNewMateriaDescricao('');
@@ -100,7 +127,7 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
     } catch (error) {
       toast({
         title: 'Erro ao criar matéria',
-        description: error instanceof Error ? error.message : 'Erro desconhecido',
+        description: extractErrorMessage(error),
         variant: 'destructive',
       });
     } finally {
