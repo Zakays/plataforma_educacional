@@ -26,6 +26,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
   const [userId, setUserId] = useState<string | null>(null);
   const { toast } = useToast();
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasMarkedCompleteRef = useRef(false);
 
   useEffect(() => {
     const getUserId = async () => {
@@ -52,6 +53,8 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
   }, [userId, videoId]);
 
   useEffect(() => {
+    hasMarkedCompleteRef.current = false;
+
     const video = videoRef.current;
     if (!video) return;
 
@@ -67,7 +70,8 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
         saveVideoProgress(videoId, userId, video.currentTime, video.duration);
 
         const percentComplete = (video.currentTime / video.duration) * 100;
-        if (percentComplete >= 90 && !video.ended) {
+        if (percentComplete >= 90 && !video.ended && !hasMarkedCompleteRef.current) {
+          hasMarkedCompleteRef.current = true;
           markVideoComplete(videoId, userId, video.duration);
         }
       }
@@ -78,6 +82,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
     const handleEnded = () => {
       setIsPlaying(false);
       if (userId && video.duration) {
+        hasMarkedCompleteRef.current = true;
         markVideoComplete(videoId, userId, video.duration);
       }
     };
@@ -96,6 +101,14 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
       video.removeEventListener('ended', handleEnded);
     };
   }, [videoId, userId]);
+
+  useEffect(() => {
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
