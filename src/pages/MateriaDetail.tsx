@@ -1,0 +1,371 @@
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Layout } from '@/components/Layout';
+import { supabase } from '@/lib/supabase';
+import { ROUTE_PATHS, formatAulaTitle } from '@/lib/index';
+import type { Materia, Aula, Video, MaterialEstudo, Quiz } from '@/lib/index';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { PlayCircle, FileText, Headphones, Brain, AlertCircle } from 'lucide-react';
+import { motion } from 'framer-motion';
+
+interface AulaWithContent extends Aula {
+  videos: Video[];
+  materiais: MaterialEstudo[];
+  quizzes: Quiz[];
+}
+
+export default function MateriaDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [materia, setMateria] = useState<Materia | null>(null);
+  const [aulas, setAulas] = useState<AulaWithContent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('videos');
+
+  useEffect(() => {
+    if (!id) {
+      navigate(ROUTE_PATHS.DASHBOARD);
+      return;
+    }
+    loadMateriaData();
+  }, [id]);
+
+  const loadMateriaData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data: materiaData, error: materiaError } = await supabase
+        .from('materias')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (materiaError) throw materiaError;
+      if (!materiaData) throw new Error('Matéria não encontrada');
+
+      setMateria(materiaData);
+
+      const { data: aulasData, error: aulasError } = await supabase
+        .from('aulas')
+        .select('*')
+        .eq('materia_id', id)
+        .order('ordem', { ascending: true });
+
+      if (aulasError) throw aulasError;
+
+      const aulasWithContent: AulaWithContent[] = await Promise.all(
+        (aulasData || []).map(async (aula) => {
+          const [videosResult, materiaisResult, quizzesResult] = await Promise.all([
+            supabase
+              .from('videos')
+              .select('*')
+              .eq('aula_id', aula.id)
+              .order('ordem', { ascending: true }),
+            supabase
+              .from('materiais_estudo')
+              .select('*')
+              .eq('aula_id', aula.id)
+              .order('ordem', { ascending: true }),
+            supabase
+              .from('quizzes')
+              .select('*')
+              .eq('aula_id', aula.id),
+          ]);
+
+          return {
+            ...aula,
+            videos: videosResult.data || [],
+            materiais: materiaisResult.data || [],
+            quizzes: quizzesResult.data || [],
+          };
+        })
+      );
+
+      setAulas(aulasWithContent);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar matéria');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getVideoAulas = () => {
+    return aulas.filter((aula) => aula.videos.length > 0);
+  };
+
+  const getQuizAulas = () => {
+    return aulas.filter((aula) => aula.quizzes.length > 0);
+  };
+
+  const getAudioAulas = () => {
+    return aulas.filter((aula) =>
+      aula.materiais.some((m) => m.tipo === 'audio')
+    );
+  };
+
+  const getPdfAulas = () => {
+    return aulas.filter((aula) =>
+      aula.materiais.some((m) => m.tipo === 'pdf')
+    );
+  };
+
+  const handleAulaClick = (aulaId: string) => {
+    navigate(ROUTE_PATHS.AULA.replace(':id', aulaId));
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="container mx-auto px-4 py-12">
+          <Skeleton className="h-12 w-64 mb-8" />
+          <div className="space-y-4">
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error || !materia) {
+    return (
+      <Layout>
+        <div className="container mx-auto px-4 py-12">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {error || 'Matéria não encontrada'}
+            </AlertDescription>
+          </Alert>
+          <Button
+            onClick={() => navigate(ROUTE_PATHS.DASHBOARD)}
+            className="mt-4"
+          >
+            Voltar ao Dashboard
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <div className="w-full px-6 py-12">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold text-foreground mb-2">
+              {materia.nome}
+            </h1>
+            {materia.descricao && (
+              <p className="text-lg text-muted-foreground">
+                {materia.descricao}
+              </p>
+            )}
+          </div>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-4 mb-8">
+              <TabsTrigger value="videos" className="flex items-center gap-2">
+                <PlayCircle className="h-4 w-4" />
+                Vídeos ({getVideoAulas().length})
+              </TabsTrigger>
+              <TabsTrigger value="quiz" className="flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                Quiz ({getQuizAulas().length})
+              </TabsTrigger>
+              <TabsTrigger value="audios" className="flex items-center gap-2">
+                <Headphones className="h-4 w-4" />
+                Áudios ({getAudioAulas().length})
+              </TabsTrigger>
+              <TabsTrigger value="pdfs" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                PDFs ({getPdfAulas().length})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="videos" className="space-y-4">
+              {getVideoAulas().length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <PlayCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">
+                      Nenhum vídeo disponível nesta matéria
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                getVideoAulas().map((aula) => (
+                  <motion.div
+                    key={aula.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <Card
+                      className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                      onClick={() => handleAulaClick(aula.id)}
+                    >
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <PlayCircle className="h-5 w-5 text-primary" />
+                          {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                        </CardTitle>
+                        <CardDescription>{aula.titulo}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">
+                          {aula.videos.length} vídeo{aula.videos.length !== 1 ? 's' : ''}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="quiz" className="space-y-4">
+              {getQuizAulas().length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Brain className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">
+                      Nenhum quiz disponível nesta matéria
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                getQuizAulas().map((aula) => (
+                  <motion.div
+                    key={aula.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <Card
+                      className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                      onClick={() => handleAulaClick(aula.id)}
+                    >
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Brain className="h-5 w-5 text-primary" />
+                          {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                        </CardTitle>
+                        <CardDescription>{aula.titulo}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">
+                          {aula.quizzes.length} quiz{aula.quizzes.length !== 1 ? 'zes' : ''}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))
+              )}
+            </TabsContent>
+
+            <TabsContent value="audios" className="space-y-4">
+              {getAudioAulas().length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Headphones className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">
+                      Nenhum áudio disponível nesta matéria
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                getAudioAulas().map((aula) => {
+                  const audioCount = aula.materiais.filter(
+                    (m) => m.tipo === 'audio'
+                  ).length;
+                  return (
+                    <motion.div
+                      key={aula.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Card
+                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                        onClick={() => handleAulaClick(aula.id)}
+                      >
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Headphones className="h-5 w-5 text-primary" />
+                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                          </CardTitle>
+                          <CardDescription>{aula.titulo}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">
+                            {audioCount} áudio{audioCount !== 1 ? 's' : ''}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  );
+                })
+              )}
+            </TabsContent>
+
+            <TabsContent value="pdfs" className="space-y-4">
+              {getPdfAulas().length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">
+                      Nenhum PDF disponível nesta matéria
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                getPdfAulas().map((aula) => {
+                  const pdfCount = aula.materiais.filter(
+                    (m) => m.tipo === 'pdf'
+                  ).length;
+                  return (
+                    <motion.div
+                      key={aula.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Card
+                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                        onClick={() => handleAulaClick(aula.id)}
+                      >
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <FileText className="h-5 w-5 text-primary" />
+                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                          </CardTitle>
+                          <CardDescription>{aula.titulo}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">
+                            {pdfCount} PDF{pdfCount !== 1 ? 's' : ''}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  );
+                })
+              )}
+            </TabsContent>
+          </Tabs>
+        </motion.div>
+      </div>
+    </Layout>
+  );
+}
