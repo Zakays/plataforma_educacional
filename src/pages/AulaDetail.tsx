@@ -27,7 +27,7 @@ const resolveMediaUrl = async (bucket: string, value: string): Promise<string | 
 const isMissingColumnError = (error: { code?: string } | null): boolean => error?.code === '42703';
 
 export default function AulaDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { aulaId } = useParams<{ materiaId: string; aulaId: string }>();
   const navigate = useNavigate();
   const [aula, setAula] = useState<Aula | null>(null);
   const [video, setVideo] = useState<Video | null>(null);
@@ -38,12 +38,12 @@ export default function AulaDetail() {
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!id) {
+    if (!aulaId) {
       navigate('/dashboard');
       return;
     }
     loadAulaData();
-  }, [id]);
+  }, [aulaId]);
 
   const loadAulaData = async () => {
     try {
@@ -53,7 +53,7 @@ export default function AulaDetail() {
       const { data: aulaData, error: aulaError } = await supabase
         .from('aulas')
         .select('*')
-        .eq('id', id)
+        .eq('id', aulaId)
         .single();
 
       if (aulaError) throw aulaError;
@@ -64,7 +64,7 @@ export default function AulaDetail() {
       let videoQuery = await supabase
         .from('videos')
         .select('*')
-        .eq('aula_id', id)
+        .eq('aula_id', aulaId)
         .order('ordem', { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -73,7 +73,7 @@ export default function AulaDetail() {
         videoQuery = await supabase
           .from('videos')
           .select('*')
-          .eq('aula_id', id)
+          .eq('aula_id', aulaId)
           .limit(1)
           .maybeSingle();
       }
@@ -92,14 +92,14 @@ export default function AulaDetail() {
       let materiaisQuery = await supabase
         .from('materiais_estudo')
         .select('*')
-        .eq('aula_id', id)
+        .eq('aula_id', aulaId)
         .order('ordem', { ascending: true });
 
       if (isMissingColumnError(materiaisQuery.error)) {
         materiaisQuery = await supabase
           .from('materiais_estudo')
           .select('*')
-          .eq('aula_id', id);
+          .eq('aula_id', aulaId);
       }
 
       if (materiaisQuery.error) throw materiaisQuery.error;
@@ -120,7 +120,7 @@ export default function AulaDetail() {
       const { data: quizzesData } = await supabase
         .from('quizzes')
         .select('*')
-        .eq('aula_id', id);
+        .eq('aula_id', aulaId);
 
       if (quizzesData) {
         setQuizzes(quizzesData);

@@ -4,7 +4,7 @@ export const ROUTE_PATHS = {
   REGISTER: '/register',
   DASHBOARD: '/dashboard',
   MATERIA: '/materia/:id',
-  AULA: '/aula/:id',
+  AULA: '/materia/:materiaId/aula/:aulaId',
   ADMIN_UPLOAD: '/admin/upload',
   ADMIN_LOGS: '/admin/logs',
 } as const;

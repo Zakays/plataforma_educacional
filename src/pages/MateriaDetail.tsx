@@ -27,6 +27,7 @@ export default function MateriaDetail() {
   const [materia, setMateria] = useState<Materia | null>(null);
   const [aulas, setAulas] = useState<AulaWithContent[]>([]);
   const [materiaisGerais, setMateriaisGerais] = useState<MaterialEstudo[]>([]);
+  const [quizzesGerais, setQuizzesGerais] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('videos');
@@ -129,6 +130,19 @@ export default function MateriaDetail() {
         setMateriaisGerais([]);
       }
 
+
+      const { data: quizzesGeraisData, error: quizzesGeraisError } = await supabase
+        .from('quizzes')
+        .select('*')
+        .eq('materia_id', id)
+        .is('aula_id', null);
+
+      if (!quizzesGeraisError && quizzesGeraisData) {
+        setQuizzesGerais(quizzesGeraisData as Quiz[]);
+      } else {
+        setQuizzesGerais([]);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar matéria');
     } finally {
@@ -142,7 +156,8 @@ export default function MateriaDetail() {
   const getPdfAulas = () => aulas.filter((aula) => aula.materiais.some((m) => m.tipo === 'pdf'));
 
   const totalVideos = aulas.reduce((total, aula) => total + aula.videos.length, 0);
-  const totalQuizzes = aulas.reduce((total, aula) => total + aula.quizzes.length, 0);
+  const totalQuizzes =
+    aulas.reduce((total, aula) => total + aula.quizzes.length, 0) + quizzesGerais.length;
   const totalAudios =
     aulas.reduce((total, aula) => total + aula.materiais.filter((m) => m.tipo === 'audio').length, 0) +
     materiaisGerais.filter((m) => m.tipo === 'audio').length;
@@ -151,7 +166,10 @@ export default function MateriaDetail() {
     materiaisGerais.filter((m) => m.tipo === 'pdf').length;
 
   const handleAulaClick = (aulaId: string) => {
-    navigate(ROUTE_PATHS.AULA.replace(':id', aulaId));
+    if (!id) return;
+    navigate(
+      ROUTE_PATHS.AULA.replace(':materiaId', id).replace(':aulaId', aulaId)
+    );
   };
 
   if (loading) {
@@ -270,7 +288,7 @@ export default function MateriaDetail() {
             </TabsContent>
 
             <TabsContent value="quiz" className="space-y-4">
-              {getQuizAulas().length === 0 ? (
+              {totalQuizzes === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <Brain className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -280,32 +298,49 @@ export default function MateriaDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                getQuizAulas().map((aula) => (
-                  <motion.div
-                    key={aula.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <Card
-                      className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
-                      onClick={() => handleAulaClick(aula.id)}
+                <>
+                  {getQuizAulas().map((aula) => (
+                    <motion.div
+                      key={aula.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
                     >
+                      <Card
+                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                        onClick={() => handleAulaClick(aula.id)}
+                      >
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Brain className="h-5 w-5 text-primary" />
+                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                          </CardTitle>
+                          <CardDescription>{aula.titulo}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">
+                            {aula.quizzes.length} quiz{aula.quizzes.length !== 1 ? 'zes' : ''}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))}
+
+                  {quizzesGerais.length > 0 && (
+                    <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                           <Brain className="h-5 w-5 text-primary" />
-                          {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                          Quiz geral da matéria
                         </CardTitle>
-                        <CardDescription>{aula.titulo}</CardDescription>
+                        <CardDescription>Quizzes sem associação com aula específica</CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <p className="text-sm text-muted-foreground">
-                          {aula.quizzes.length} quiz{aula.quizzes.length !== 1 ? 'zes' : ''}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{quizzesGerais.length} quiz(es)</p>
                       </CardContent>
                     </Card>
-                  </motion.div>
-                ))
+                  )}
+                </>
               )}
             </TabsContent>
 

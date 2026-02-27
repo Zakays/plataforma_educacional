@@ -13,6 +13,62 @@ export interface UploadResult {
   logId?: string;
 }
 
+
+interface ParsedQuizQuestion {
+  pergunta: string;
+  opcoes: string[];
+  resposta_correta: number;
+}
+
+interface ParsedFlashcard {
+  frente: string;
+  verso: string;
+}
+
+const parseCsvRows = (content: string): string[][] => {
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split(/[;,]/).map((cell) => cell.trim()));
+};
+
+const parseQuizCsv = (content: string): ParsedQuizQuestion[] => {
+  const rows = parseCsvRows(content);
+  if (rows.length <= 1) return [];
+
+  const dataRows = rows.slice(1);
+
+  return dataRows
+    .map((row) => {
+      const [pergunta, opcaoA, opcaoB, opcaoC, opcaoD, resposta] = row;
+      const responseRaw = (resposta || '').trim().toLowerCase();
+      const indexFromLetter = ['a', 'b', 'c', 'd'].indexOf(responseRaw);
+      const indexFromNumber = Number.parseInt(responseRaw, 10) - 1;
+      const respostaCorreta = indexFromLetter >= 0 ? indexFromLetter : indexFromNumber;
+
+      return {
+        pergunta: pergunta || '',
+        opcoes: [opcaoA || '', opcaoB || '', opcaoC || '', opcaoD || ''],
+        resposta_correta: Number.isInteger(respostaCorreta) && respostaCorreta >= 0 ? respostaCorreta : 0,
+      };
+    })
+    .filter((q) => q.pergunta && q.opcoes.some(Boolean));
+};
+
+const parseFlashcardsCsv = (content: string): ParsedFlashcard[] => {
+  const rows = parseCsvRows(content);
+  if (rows.length <= 1) return [];
+
+  return rows
+    .slice(1)
+    .map((row) => ({
+      frente: row[0] || '',
+      verso: row[1] || '',
+    }))
+    .filter((card) => card.frente && card.verso);
+};
+
 export const parseFileName = (fileName: string): {
   numeroAula: number;
   numeroSubaula: number;
@@ -250,6 +306,7 @@ const insertVideo = async (aulaId: string, titulo: string, url: string): Promise
       ordem: 1,
     };
 
+
     let response = await supabase.from('videos').insert(payload as any);
 
     if (response.error?.code === '42703') {
@@ -278,12 +335,14 @@ const insertMaterial = async ({
   tipo,
   titulo,
   url,
+  conteudo,
 }: {
   aulaId?: string | null;
   materiaId?: string;
   tipo: MaterialTipo;
   titulo: string;
   url: string;
+  conteudo?: unknown;
 }): Promise<boolean> => {
   try {
     const basePayload: Record<string, unknown> = {
@@ -292,6 +351,7 @@ const insertMaterial = async ({
       url,
       ordem: 1,
     };
+
 
     if (aulaId) basePayload.aula_id = aulaId;
     if (materiaId) basePayload.materia_id = materiaId;
@@ -314,6 +374,63 @@ const insertMaterial = async ({
     return !response.error;
   } catch (error) {
     console.error('Erro ao inserir material:', error);
+    return false;
+  }
+};
+
+
+const insertQuiz = async ({
+  aulaId,
+  materiaId,
+  titulo,
+  questoes,
+}: {
+  aulaId?: string | null;
+  materiaId?: string;
+  titulo: string;
+  questoes: ParsedQuizQuestion[];
+}): Promise<boolean> => {
+  try {
+    const payload: Record<string, unknown> = {
+      titulo,
+      questoes,
+    };
+
+    if (aulaId) payload.aula_id = aulaId;
+    if (materiaId) payload.materia_id = materiaId;
+
+    let response = await supabase.from('quizzes').insert(payload as any);
+
+    if (response.error?.code === '42703') {
+      const missingColumn = getMissingColumnName(response.error.message);
+
+      if (missingColumn === 'questoes') {
+        // fallback para schema de questões linha-a-linha
+        if (questoes.length === 0) return false;
+        const rowPayload = questoes.map((q) => {
+          const row: Record<string, unknown> = {
+            pergunta: q.pergunta,
+            opcao_a: q.opcoes[0] || '',
+            opcao_b: q.opcoes[1] || '',
+            opcao_c: q.opcoes[2] || '',
+            opcao_d: q.opcoes[3] || '',
+            resposta_correta: q.resposta_correta,
+          };
+          if (aulaId) row.aula_id = aulaId;
+          if (materiaId) row.materia_id = materiaId;
+          return row;
+        });
+
+        response = await supabase.from('quizzes').insert(rowPayload as any);
+      } else if (missingColumn) {
+        delete payload[missingColumn];
+        response = await supabase.from('quizzes').insert(payload as any);
+      }
+    }
+
+    return !response.error;
+  } catch (error) {
+    console.error('Erro ao inserir quiz:', error);
     return false;
   }
 };
@@ -417,6 +534,35 @@ export const processFileUpload = async ({
           if (!videoInserted) {
             message += ' (erro ao associar vídeo na tabela videos)';
           }
+        } else if (fileType === 'csv') {
+          const csvContent = await file.text();
+          const isQuizCsv = /quiz/i.test(fileName);
+
+          if (isQuizCsv) {
+            const questions = parseQuizCsv(csvContent);
+            const quizInserted = await insertQuiz({
+              aulaId,
+              materiaId,
+              titulo: aulaInfo.titulo,
+              questoes: questions,
+            });
+            if (!quizInserted) {
+              message += ' (erro ao associar quiz)';
+            }
+          } else {
+            const cards = parseFlashcardsCsv(csvContent);
+            const flashcardInserted = await insertMaterial({
+              aulaId,
+              materiaId,
+              tipo: 'flashcard',
+              titulo: aulaInfo.titulo,
+              url: uploadResult.url!,
+              conteudo: cards,
+            });
+            if (!flashcardInserted) {
+              message += ' (erro ao associar flashcards)';
+            }
+          }
         } else {
           const materialInserted = await insertMaterial({
             aulaId,
@@ -434,15 +580,46 @@ export const processFileUpload = async ({
       }
     } else {
       // Inserir apenas como material de estudo geral
-      const materialInserted = await insertMaterial({
-        aulaId: null,
-        materiaId,
-        tipo: materialTipo,
-        titulo: fileName,
-        url: uploadResult.url!,
-      });
-      if (!materialInserted) {
-        message += ' (erro ao associar material)';
+      if (fileType === 'csv') {
+        const csvContent = await file.text();
+        const isQuizCsv = /quiz/i.test(fileName);
+
+        if (isQuizCsv) {
+          const questions = parseQuizCsv(csvContent);
+          const quizInserted = await insertQuiz({
+            aulaId: null,
+            materiaId,
+            titulo: fileName,
+            questoes: questions,
+          });
+          if (!quizInserted) {
+            message += ' (erro ao associar quiz)';
+          }
+        } else {
+          const cards = parseFlashcardsCsv(csvContent);
+          const flashcardInserted = await insertMaterial({
+            aulaId: null,
+            materiaId,
+            tipo: 'flashcard',
+            titulo: fileName,
+            url: uploadResult.url!,
+            conteudo: cards,
+          });
+          if (!flashcardInserted) {
+            message += ' (erro ao associar flashcards)';
+          }
+        }
+      } else {
+        const materialInserted = await insertMaterial({
+          aulaId: null,
+          materiaId,
+          tipo: materialTipo,
+          titulo: fileName,
+          url: uploadResult.url!,
+        });
+        if (!materialInserted) {
+          message += ' (erro ao associar material)';
+        }
       }
     }
 
