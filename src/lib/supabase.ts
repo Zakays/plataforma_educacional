@@ -100,13 +100,29 @@ export const getCurrentUser = async (): Promise<{
     if (authError) throw authError;
     if (!user) return { user: null, profile: null, error: null };
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: profileByUserId, error: profileByUserIdError } = await supabase
       .from('profiles')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError) throw profileError;
+    // Alguns projetos usam `profiles.id = auth.users.id` em vez de `profiles.user_id`.
+    // Fazemos fallback para evitar bloquear o login quando o schema difere.
+    const { data: profileById, error: profileByIdError } = profileByUserId
+      ? { data: null, error: null }
+      : await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+
+    const profile = profileByUserId ?? profileById;
+    const profileError = profileByUserIdError ?? profileByIdError;
+
+    // Se não existir perfil, ainda mantemos o usuário autenticado para evitar loop de login.
+    if (profileError && profileError.code !== 'PGRST116') {
+      console.error('Erro ao buscar perfil do usuário:', profileError);
+    }
 
     return {
       user: {
