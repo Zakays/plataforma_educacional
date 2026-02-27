@@ -311,7 +311,7 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
                 onChange={handleFileSelect}
                 className="hidden"
                 id="file-upload"
-                accept=".mp4,.webm,.mov,.pdf,.mp3,.wav,.m4a"
+                accept=".mp4,.webm,.mov,.pdf,.mp3,.wav,.m4a,.csv"
               />
               <label htmlFor="file-upload">
                 <Button type="button" variant="outline" asChild>

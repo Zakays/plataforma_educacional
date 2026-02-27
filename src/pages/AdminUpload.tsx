@@ -77,6 +77,7 @@ export default function AdminUpload() {
                 <li>Vídeos: .mp4, .webm, .mov</li>
                 <li>PDFs: .pdf</li>
                 <li>Áudios: .mp3, .wav, .m4a</li>
+                <li>CSV: .csv</li>
               </ul>
             </div>
             <div>

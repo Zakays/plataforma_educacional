@@ -30,13 +30,81 @@ export const parseFileName = (fileName: string): {
   };
 };
 
+
+const getCloudinaryResourceType = (fileExtension: string): 'video' | 'raw' => {
+  if (['mp4', 'webm', 'mov', 'avi', 'mp3', 'wav', 'm4a', 'aac'].includes(fileExtension)) {
+    return 'video';
+  }
+
+  return 'raw';
+};
+
+const uploadToCloudinary = async (
+  file: File,
+  path: string,
+  fileExtension: string
+): Promise<{ success: boolean; url?: string; error?: string }> => {
+  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string | undefined;
+  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string | undefined;
+  const folder = import.meta.env.VITE_CLOUDINARY_FOLDER as string | undefined;
+
+  if (!cloudName || !uploadPreset) {
+    return {
+      success: false,
+      error: 'Cloudinary não configurado. Defina VITE_CLOUDINARY_CLOUD_NAME e VITE_CLOUDINARY_UPLOAD_PRESET.',
+    };
+  }
+
+  try {
+    const publicId = path.replace(/\.[^.]+$/, '');
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', uploadPreset);
+    formData.append('public_id', publicId);
+    formData.append('resource_type', getCloudinaryResourceType(fileExtension));
+
+    if (folder) {
+      formData.append('folder', folder);
+    }
+
+    const endpoint = `https://api.cloudinary.com/v1_1/${cloudName}/${getCloudinaryResourceType(fileExtension)}/upload`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.secure_url) {
+      throw new Error(result?.error?.message || 'Erro ao enviar arquivo para Cloudinary');
+    }
+
+    return {
+      success: true,
+      url: result.secure_url,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Erro no upload para Cloudinary',
+    };
+  }
+};
+
 export const uploadToStorage = async (
   file: File,
   materiaId: string,
   path: string
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
+  const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+
+  const cloudinaryResult = await uploadToCloudinary(file, path, fileExtension);
+  if (cloudinaryResult.success) {
+    return cloudinaryResult;
+  }
+
   try {
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('conteudos')
       .upload(path, file, {
         upsert: true,
@@ -54,9 +122,10 @@ export const uploadToStorage = async (
       url: urlData?.signedUrl,
     };
   } catch (error) {
+    const fallbackMessage = error instanceof Error ? error.message : 'Erro no upload';
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Erro no upload',
+      error: `${cloudinaryResult.error || 'Falha no Cloudinary'} | Supabase: ${fallbackMessage}`,
     };
   }
 };
@@ -184,6 +253,10 @@ export const processFileUpload = async ({
     fileType = 'mapa_mental';
     materialTipo = 'mapa_mental';
     folder = 'mapas';
+  } else if (['csv'].includes(fileExtension)) {
+    fileType = 'csv';
+    materialTipo = 'flashcard';
+    folder = 'csv';
   } else {
     const logId = await logUpload(
       userId,
