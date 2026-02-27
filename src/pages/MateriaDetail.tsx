@@ -21,6 +21,13 @@ interface AulaWithContent extends Aula {
   quizzes: Quiz[];
 }
 
+
+const getAulaLabel = (aula: any): string => {
+  const numeroAula = Number(aula?.numero_aula ?? aula?.aula_numero ?? 0);
+  const numeroSubaula = Number(aula?.numero_subaula ?? aula?.assunto_numero ?? 0);
+  return formatAulaTitle(numeroAula, numeroSubaula);
+};
+
 export default function MateriaDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -290,7 +297,7 @@ export default function MateriaDetail() {
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <PlayCircle className="h-5 w-5 text-primary" />
-                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                            {getAulaLabel(aula)}
                           </CardTitle>
                           <CardDescription>{aula.titulo}</CardDescription>
                         </CardHeader>
@@ -349,7 +356,7 @@ export default function MateriaDetail() {
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <Brain className="h-5 w-5 text-primary" />
-                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                            {getAulaLabel(aula)}
                           </CardTitle>
                           <CardDescription>{aula.titulo}</CardDescription>
                         </CardHeader>
@@ -408,7 +415,7 @@ export default function MateriaDetail() {
                           <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                               <Headphones className="h-5 w-5 text-primary" />
-                              {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                              {getAulaLabel(aula)}
                             </CardTitle>
                             <CardDescription>{aula.titulo}</CardDescription>
                           </CardHeader>
@@ -467,7 +474,7 @@ export default function MateriaDetail() {
                           <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                               <FileText className="h-5 w-5 text-primary" />
-                              {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                              {getAulaLabel(aula)}
                             </CardTitle>
                             <CardDescription>{aula.titulo}</CardDescription>
                           </CardHeader>

@@ -26,6 +26,24 @@ const resolveMediaUrl = async (bucket: string, value: string): Promise<string | 
 
 const isMissingColumnError = (error: { code?: string } | null): boolean => error?.code === '42703';
 
+
+const getAulaNumbers = (aula: Aula | null): { numeroAula: number; numeroSubaula: number } => {
+  const numeroAula = Number((aula as any)?.numero_aula ?? (aula as any)?.aula_numero ?? 0);
+  const numeroSubaula = Number((aula as any)?.numero_subaula ?? (aula as any)?.assunto_numero ?? 0);
+  return {
+    numeroAula: Number.isFinite(numeroAula) ? numeroAula : 0,
+    numeroSubaula: Number.isFinite(numeroSubaula) ? numeroSubaula : 0,
+  };
+};
+
+const cleanAulaTitle = (rawTitle: string | undefined, numeroAula: number, numeroSubaula: number): string => {
+  if (!rawTitle) return 'Aula';
+  return rawTitle
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(new RegExp(`^Aula\\s+${numeroAula}\\.${numeroSubaula}\\s*[-–—:]\\s*`, 'i'), '')
+    .trim();
+};
+
 export default function AulaDetail() {
   const { aulaId } = useParams<{ materiaId: string; aulaId: string }>();
   const navigate = useNavigate();
@@ -84,7 +102,7 @@ export default function AulaDetail() {
       if (videoData) {
         setVideo(videoData as Video);
         const videoUrl = (videoData as Video).url || (videoData as Video).url_storage || '';
-        const mediaUrl = await resolveMediaUrl('videos', videoUrl);
+        const mediaUrl = await resolveMediaUrl('conteudos', videoUrl);
         if (mediaUrl) {
           setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: mediaUrl }));
         }
@@ -108,9 +126,8 @@ export default function AulaDetail() {
       if (materiaisQuery.data) {
         setMateriais(materiaisQuery.data as MaterialEstudo[]);
         for (const material of (materiaisQuery.data as MaterialEstudo[])) {
-          if (material.url) {
-            const bucket = material.tipo === 'pdf' ? 'pdfs' : material.tipo === 'audio' ? 'audios' : 'mapas';
-            const mediaUrl = await resolveMediaUrl(bucket, material.url);
+          if (material.url || (material as any).url_storage) {
+            const mediaUrl = await resolveMediaUrl('conteudos', material.url || (material as any).url_storage || '');
             if (mediaUrl) {
               setSignedUrls(prev => ({ ...prev, [material.id]: mediaUrl }));
             }
@@ -211,14 +228,11 @@ export default function AulaDetail() {
         >
           <div className="mb-8">
             <h1 className="text-4xl font-bold mb-2">
-              {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+              {cleanAulaTitle(aula.titulo, getAulaNumbers(aula).numeroAula, getAulaNumbers(aula).numeroSubaula)}
             </h1>
-            {aula.titulo && (
-              <h2 className="text-2xl text-muted-foreground font-medium">{aula.titulo}</h2>
-            )}
-            {aula.descricao && (
-              <p className="text-muted-foreground mt-4">{aula.descricao}</p>
-            )}
+            <p className="text-muted-foreground font-medium">
+              {formatAulaTitle(getAulaNumbers(aula).numeroAula, getAulaNumbers(aula).numeroSubaula)}
+            </p>
           </div>
 
           {video && signedUrls[video.id] && (
@@ -230,6 +244,11 @@ export default function AulaDetail() {
                     videoId={video.id}
                     aulaId={aula.id}
                   />
+                  {aula.descricao && (
+                    <div className="px-6 py-4 border-t">
+                      <p className="text-sm text-muted-foreground">{aula.descricao}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
