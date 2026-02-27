@@ -308,19 +308,27 @@ const insertVideo = async (aulaId: string, titulo: string, url: string): Promise
       ordem: 1,
     };
 
-
     let response = await supabase.from('videos').insert(payload as any);
 
-    if (response.error?.code === '42703') {
+    // Alguns schemas possuem apenas `url_storage` e não possuem `titulo`/`ordem`.
+    // Tentamos adaptar dinamicamente removendo/ajustando colunas ausentes.
+    for (let i = 0; i < 4 && response.error?.code === '42703'; i++) {
       const missingColumn = getMissingColumnName(response.error.message);
+      if (!missingColumn) break;
 
       if (missingColumn === 'url') {
         delete payload.url;
         payload.url_storage = url;
-      } else if (missingColumn) {
+      } else {
         delete payload[missingColumn];
       }
 
+      response = await supabase.from('videos').insert(payload as any);
+    }
+
+    if (response.error?.code === '23502' && response.error.message.includes('url_storage')) {
+      delete payload.url;
+      payload.url_storage = url;
       response = await supabase.from('videos').insert(payload as any);
     }
 

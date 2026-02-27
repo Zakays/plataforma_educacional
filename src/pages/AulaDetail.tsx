@@ -83,7 +83,8 @@ export default function AulaDetail() {
 
       if (videoData) {
         setVideo(videoData as Video);
-        const mediaUrl = await resolveMediaUrl('videos', (videoData as Video).url);
+        const videoUrl = (videoData as Video).url || (videoData as Video).url_storage || '';
+        const mediaUrl = await resolveMediaUrl('videos', videoUrl);
         if (mediaUrl) {
           setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: mediaUrl }));
         }

@@ -51,7 +51,8 @@ export interface Video {
   id: string;
   aula_id: string;
   titulo: string;
-  url: string;
+  url?: string;
+  url_storage?: string;
   duracao?: number;
   ordem: number;
   created_at: string;
