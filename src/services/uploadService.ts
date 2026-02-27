@@ -202,22 +202,41 @@ const insertVideo = async (aulaId: string, titulo: string, url: string): Promise
   }
 };
 
-const insertMaterial = async (
-  aulaId: string,
-  tipo: MaterialTipo,
-  titulo: string,
-  url: string
-): Promise<boolean> => {
+const insertMaterial = async ({
+  aulaId,
+  materiaId,
+  tipo,
+  titulo,
+  url,
+}: {
+  aulaId?: string | null;
+  materiaId?: string;
+  tipo: MaterialTipo;
+  titulo: string;
+  url: string;
+}): Promise<boolean> => {
   try {
-    const { error } = await supabase.from('materiais_estudo').insert({
-      aula_id: aulaId,
+    const basePayload: Record<string, unknown> = {
       tipo,
       titulo,
       url,
       ordem: 1,
-    } as any);
+    };
 
-    return !error;
+    if (aulaId) basePayload.aula_id = aulaId;
+    if (materiaId) basePayload.materia_id = materiaId;
+
+    let response = await supabase.from('materiais_estudo').insert(basePayload as any);
+
+    if (response.error?.code === '42703') {
+      const missingColumn = response.error.message.match(/column\s+materiais_estudo\.([a-zA-Z0-9_]+)/i)?.[1];
+      if (missingColumn) {
+        delete basePayload[missingColumn];
+        response = await supabase.from('materiais_estudo').insert(basePayload as any);
+      }
+    }
+
+    return !response.error;
   } catch (error) {
     console.error('Erro ao inserir material:', error);
     return false;
@@ -324,12 +343,13 @@ export const processFileUpload = async ({
             message += ' (erro ao associar vídeo)';
           }
         } else {
-          const materialInserted = await insertMaterial(
+          const materialInserted = await insertMaterial({
             aulaId,
-            materialTipo,
-            aulaInfo.titulo,
-            uploadResult.url!
-          );
+            materiaId,
+            tipo: materialTipo,
+            titulo: aulaInfo.titulo,
+            url: uploadResult.url!,
+          });
           if (!materialInserted) {
             message += ' (erro ao associar material)';
           }
@@ -339,12 +359,13 @@ export const processFileUpload = async ({
       }
     } else {
       // Inserir apenas como material de estudo geral
-      const materialInserted = await insertMaterial(
-        materiaId, // usar materiaId como aula_id quando não há padrão
-        materialTipo,
-        fileName,
-        uploadResult.url!
-      );
+      const materialInserted = await insertMaterial({
+        aulaId: null,
+        materiaId,
+        tipo: materialTipo,
+        titulo: fileName,
+        url: uploadResult.url!,
+      });
       if (!materialInserted) {
         message += ' (erro ao associar material)';
       }

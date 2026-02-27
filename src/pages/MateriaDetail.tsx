@@ -26,6 +26,7 @@ export default function MateriaDetail() {
   const navigate = useNavigate();
   const [materia, setMateria] = useState<Materia | null>(null);
   const [aulas, setAulas] = useState<AulaWithContent[]>([]);
+  const [materiaisGerais, setMateriaisGerais] = useState<MaterialEstudo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('videos');
@@ -106,6 +107,28 @@ export default function MateriaDetail() {
       );
 
       setAulas(aulasWithContent);
+
+      let materiaisGeraisQuery = await supabase
+        .from('materiais_estudo')
+        .select('*')
+        .eq('materia_id', id)
+        .is('aula_id', null)
+        .order('ordem', { ascending: true });
+
+      if (isMissingColumnError(materiaisGeraisQuery.error)) {
+        materiaisGeraisQuery = await supabase
+          .from('materiais_estudo')
+          .select('*')
+          .eq('materia_id', id)
+          .is('aula_id', null);
+      }
+
+      if (!materiaisGeraisQuery.error && materiaisGeraisQuery.data) {
+        setMateriaisGerais(materiaisGeraisQuery.data as MaterialEstudo[]);
+      } else {
+        setMateriaisGerais([]);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar matéria');
     } finally {
@@ -113,25 +136,19 @@ export default function MateriaDetail() {
     }
   };
 
-  const getVideoAulas = () => {
-    return aulas.filter((aula) => aula.videos.length > 0);
-  };
+  const getVideoAulas = () => aulas.filter((aula) => aula.videos.length > 0);
+  const getQuizAulas = () => aulas.filter((aula) => aula.quizzes.length > 0);
+  const getAudioAulas = () => aulas.filter((aula) => aula.materiais.some((m) => m.tipo === 'audio'));
+  const getPdfAulas = () => aulas.filter((aula) => aula.materiais.some((m) => m.tipo === 'pdf'));
 
-  const getQuizAulas = () => {
-    return aulas.filter((aula) => aula.quizzes.length > 0);
-  };
-
-  const getAudioAulas = () => {
-    return aulas.filter((aula) =>
-      aula.materiais.some((m) => m.tipo === 'audio')
-    );
-  };
-
-  const getPdfAulas = () => {
-    return aulas.filter((aula) =>
-      aula.materiais.some((m) => m.tipo === 'pdf')
-    );
-  };
+  const totalVideos = aulas.reduce((total, aula) => total + aula.videos.length, 0);
+  const totalQuizzes = aulas.reduce((total, aula) => total + aula.quizzes.length, 0);
+  const totalAudios =
+    aulas.reduce((total, aula) => total + aula.materiais.filter((m) => m.tipo === 'audio').length, 0) +
+    materiaisGerais.filter((m) => m.tipo === 'audio').length;
+  const totalPdfs =
+    aulas.reduce((total, aula) => total + aula.materiais.filter((m) => m.tipo === 'pdf').length, 0) +
+    materiaisGerais.filter((m) => m.tipo === 'pdf').length;
 
   const handleAulaClick = (aulaId: string) => {
     navigate(ROUTE_PATHS.AULA.replace(':id', aulaId));
@@ -196,19 +213,19 @@ export default function MateriaDetail() {
             <TabsList className="grid w-full grid-cols-4 mb-8">
               <TabsTrigger value="videos" className="flex items-center gap-2">
                 <PlayCircle className="h-4 w-4" />
-                Vídeos ({getVideoAulas().length})
+                Vídeos ({totalVideos})
               </TabsTrigger>
               <TabsTrigger value="quiz" className="flex items-center gap-2">
                 <Brain className="h-4 w-4" />
-                Quiz ({getQuizAulas().length})
+                Quiz ({totalQuizzes})
               </TabsTrigger>
               <TabsTrigger value="audios" className="flex items-center gap-2">
                 <Headphones className="h-4 w-4" />
-                Áudios ({getAudioAulas().length})
+                Áudios ({totalAudios})
               </TabsTrigger>
               <TabsTrigger value="pdfs" className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                PDFs ({getPdfAulas().length})
+                PDFs ({totalPdfs})
               </TabsTrigger>
             </TabsList>
 
@@ -293,7 +310,7 @@ export default function MateriaDetail() {
             </TabsContent>
 
             <TabsContent value="audios" className="space-y-4">
-              {getAudioAulas().length === 0 ? (
+              {totalAudios === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <Headphones className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -303,42 +320,56 @@ export default function MateriaDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                getAudioAulas().map((aula) => {
-                  const audioCount = aula.materiais.filter(
-                    (m) => m.tipo === 'audio'
-                  ).length;
-                  return (
-                    <motion.div
-                      key={aula.id}
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <Card
-                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
-                        onClick={() => handleAulaClick(aula.id)}
+                <>
+                  {getAudioAulas().map((aula) => {
+                    const audioCount = aula.materiais.filter((m) => m.tipo === 'audio').length;
+                    return (
+                      <motion.div
+                        key={aula.id}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
                       >
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Headphones className="h-5 w-5 text-primary" />
-                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
-                          </CardTitle>
-                          <CardDescription>{aula.titulo}</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground">
-                            {audioCount} áudio{audioCount !== 1 ? 's' : ''}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  );
-                })
+                        <Card
+                          className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                          onClick={() => handleAulaClick(aula.id)}
+                        >
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <Headphones className="h-5 w-5 text-primary" />
+                              {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                            </CardTitle>
+                            <CardDescription>{aula.titulo}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-sm text-muted-foreground">{audioCount} áudio{audioCount !== 1 ? 's' : ''}</p>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    );
+                  })}
+                  {materiaisGerais.filter((m) => m.tipo === 'audio').length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Headphones className="h-5 w-5 text-primary" />
+                          Materiais gerais da matéria
+                        </CardTitle>
+                        <CardDescription>Arquivos sem associação com aula específica</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">
+                          {materiaisGerais.filter((m) => m.tipo === 'audio').length} áudio(s)
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
               )}
             </TabsContent>
 
             <TabsContent value="pdfs" className="space-y-4">
-              {getPdfAulas().length === 0 ? (
+              {totalPdfs === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -348,37 +379,51 @@ export default function MateriaDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                getPdfAulas().map((aula) => {
-                  const pdfCount = aula.materiais.filter(
-                    (m) => m.tipo === 'pdf'
-                  ).length;
-                  return (
-                    <motion.div
-                      key={aula.id}
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <Card
-                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
-                        onClick={() => handleAulaClick(aula.id)}
+                <>
+                  {getPdfAulas().map((aula) => {
+                    const pdfCount = aula.materiais.filter((m) => m.tipo === 'pdf').length;
+                    return (
+                      <motion.div
+                        key={aula.id}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3 }}
                       >
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <FileText className="h-5 w-5 text-primary" />
-                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
-                          </CardTitle>
-                          <CardDescription>{aula.titulo}</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm text-muted-foreground">
-                            {pdfCount} PDF{pdfCount !== 1 ? 's' : ''}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  );
-                })
+                        <Card
+                          className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                          onClick={() => handleAulaClick(aula.id)}
+                        >
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <FileText className="h-5 w-5 text-primary" />
+                              {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                            </CardTitle>
+                            <CardDescription>{aula.titulo}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-sm text-muted-foreground">{pdfCount} PDF{pdfCount !== 1 ? 's' : ''}</p>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    );
+                  })}
+                  {materiaisGerais.filter((m) => m.tipo === 'pdf').length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <FileText className="h-5 w-5 text-primary" />
+                          Materiais gerais da matéria
+                        </CardTitle>
+                        <CardDescription>Arquivos sem associação com aula específica</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-muted-foreground">
+                          {materiaisGerais.filter((m) => m.tipo === 'pdf').length} PDF(s)
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
               )}
             </TabsContent>
           </Tabs>
