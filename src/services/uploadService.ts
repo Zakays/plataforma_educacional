@@ -199,23 +199,39 @@ const logUpload = async (
   aulaId?: string
 ): Promise<string | null> => {
   try {
-    const { data, error } = await supabase
+    // Schema atual do projeto usa nome_arquivo/tipo/mensagem_erro.
+    // Mantemos fallback para nomes antigos para compatibilidade.
+    let insertResult = await supabase
       .from('upload_logs')
       .insert({
         user_id: userId,
-        materia_id: materiaId,
-        arquivo_nome: fileName,
-        arquivo_tipo: fileType,
+        nome_arquivo: fileName,
+        tipo: fileType,
         status,
-        mensagem: message,
-        erro_detalhes: errorDetails || '',
-        aula_criada_id: aulaId || '',
+        mensagem_erro: status === 'erro' ? (errorDetails || message) : null,
       } as any)
       .select()
       .single();
 
-    if (error) throw error;
-    return data?.id || null;
+    if (insertResult.error?.code === '42703') {
+      insertResult = await supabase
+        .from('upload_logs')
+        .insert({
+          user_id: userId,
+          materia_id: materiaId,
+          arquivo_nome: fileName,
+          arquivo_tipo: fileType,
+          status,
+          mensagem: message,
+          erro_detalhes: errorDetails || '',
+          aula_criada_id: aulaId || '',
+        } as any)
+        .select()
+        .single();
+    }
+
+    if (insertResult.error) throw insertResult.error;
+    return insertResult.data?.id || null;
   } catch (error) {
     console.error('Erro ao salvar log:', error);
     return null;
@@ -299,43 +315,53 @@ const getMissingColumnName = (message?: string): string | null => {
   return message.match(/column\s+[a-zA-Z0-9_]+\.([a-zA-Z0-9_]+)/i)?.[1] || null;
 };
 
-const insertVideo = async (aulaId: string, titulo: string, url: string): Promise<boolean> => {
+const insertVideo = async (
+  aulaId: string,
+  _titulo: string,
+  url: string
+): Promise<{ success: boolean; error?: string }> => {
   try {
     const payload: Record<string, unknown> = {
       aula_id: aulaId,
-      titulo,
-      url,
-      ordem: 1,
+      url_storage: url,
     };
 
     let response = await supabase.from('videos').insert(payload as any);
 
-    // Alguns schemas possuem apenas `url_storage` e não possuem `titulo`/`ordem`.
-    // Tentamos adaptar dinamicamente removendo/ajustando colunas ausentes.
-    for (let i = 0; i < 4 && response.error?.code === '42703'; i++) {
-      const missingColumn = getMissingColumnName(response.error.message);
-      if (!missingColumn) break;
+    for (let i = 0; i < 6 && response.error; i++) {
+      if (response.error.code === '42703') {
+        const missingColumn = getMissingColumnName(response.error.message);
+        if (!missingColumn) break;
 
-      if (missingColumn === 'url') {
-        delete payload.url;
-        payload.url_storage = url;
-      } else {
-        delete payload[missingColumn];
+        if (missingColumn === 'url_storage') {
+          delete payload.url_storage;
+          payload.url = url;
+        } else {
+          delete payload[missingColumn];
+        }
+
+        response = await supabase.from('videos').insert(payload as any);
+        continue;
       }
 
-      response = await supabase.from('videos').insert(payload as any);
+      if (response.error.code === '23502' && response.error.message.includes('url_storage')) {
+        payload.url_storage = url;
+        response = await supabase.from('videos').insert(payload as any);
+        continue;
+      }
+
+      break;
     }
 
-    if (response.error?.code === '23502' && response.error.message.includes('url_storage')) {
-      delete payload.url;
-      payload.url_storage = url;
-      response = await supabase.from('videos').insert(payload as any);
+    if (response.error) {
+      return { success: false, error: `${response.error.code || 'DB'}: ${response.error.message}` };
     }
 
-    return !response.error;
+    return { success: true };
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Erro desconhecido ao inserir vídeo';
     console.error('Erro ao inserir vídeo:', error);
-    return false;
+    return { success: false, error: message };
   }
 };
 
@@ -355,11 +381,12 @@ const insertMaterial = async ({
   conteudo?: unknown;
 }): Promise<boolean> => {
   try {
+    const dbTipo = tipo === 'flashcard' ? 'flashcard_csv' : tipo;
+
     const basePayload: Record<string, unknown> = {
-      tipo,
+      tipo: dbTipo,
       titulo,
-      url,
-      ordem: 1,
+      url_storage: url,
     };
 
 
@@ -371,9 +398,9 @@ const insertMaterial = async ({
     if (response.error?.code === '42703') {
       const missingColumn = getMissingColumnName(response.error.message);
 
-      if (missingColumn === 'url') {
-        delete basePayload.url;
-        basePayload.url_storage = url;
+      if (missingColumn === 'url_storage') {
+        delete basePayload.url_storage;
+        basePayload.url = url;
       } else if (missingColumn) {
         delete basePayload[missingColumn];
       }
@@ -401,6 +428,26 @@ const insertQuiz = async ({
   questoes: ParsedQuizQuestion[];
 }): Promise<boolean> => {
   try {
+    if (questoes.length === 0) return false;
+
+    const rowPayload = questoes.map((q) => {
+      const row: Record<string, unknown> = {
+        pergunta: q.pergunta,
+        opcao_a: q.opcoes[0] || '',
+        opcao_b: q.opcoes[1] || '',
+        opcao_c: q.opcoes[2] || '',
+        opcao_d: q.opcoes[3] || '',
+        resposta_correta: ['a', 'b', 'c', 'd'][q.resposta_correta] || 'a',
+      };
+      if (aulaId) row.aula_id = aulaId;
+      if (materiaId) row.materia_id = materiaId;
+      return row;
+    });
+
+    let response = await supabase.from('quizzes').insert(rowPayload as any);
+
+    if (!response.error) return true;
+
     const payload: Record<string, unknown> = {
       titulo,
       questoes,
@@ -409,7 +456,7 @@ const insertQuiz = async ({
     if (aulaId) payload.aula_id = aulaId;
     if (materiaId) payload.materia_id = materiaId;
 
-    let response = await supabase.from('quizzes').insert(payload as any);
+    response = await supabase.from('quizzes').insert(payload as any);
 
     if (response.error?.code === '42703') {
       const missingColumn = getMissingColumnName(response.error.message);
@@ -540,9 +587,9 @@ export const processFileUpload = async ({
         
         // Inserir registro específico por tipo
         if (fileType === 'video') {
-          const videoInserted = await insertVideo(aulaId, aulaInfo.titulo, uploadResult.url!);
-          if (!videoInserted) {
-            const associationError = 'Erro ao associar vídeo na tabela videos';
+          const videoInsertResult = await insertVideo(aulaId, aulaInfo.titulo, uploadResult.url!);
+          if (!videoInsertResult.success) {
+            const associationError = `Erro ao associar vídeo na tabela videos: ${videoInsertResult.error || 'desconhecido'}`;
             const logId = await logUpload(userId, materiaId, fileName, fileType, 'erro', associationError, associationError, aulaId || undefined);
             return { success: false, error: associationError, logId: logId || undefined };
           }
