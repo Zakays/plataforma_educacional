@@ -12,6 +12,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PlayCircle, FileText, Headphones, Brain, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+
+const isMissingColumnError = (error: { code?: string } | null): boolean => error?.code === '42703';
+
 interface AulaWithContent extends Aula {
   videos: Video[];
   materiais: MaterialEstudo[];
@@ -51,17 +54,24 @@ export default function MateriaDetail() {
 
       setMateria(materiaData);
 
-      const { data: aulasData, error: aulasError } = await supabase
+      let aulasQuery = await supabase
         .from('aulas')
         .select('*')
         .eq('materia_id', id)
         .order('ordem', { ascending: true });
 
-      if (aulasError) throw aulasError;
+      if (isMissingColumnError(aulasQuery.error)) {
+        aulasQuery = await supabase
+          .from('aulas')
+          .select('*')
+          .eq('materia_id', id);
+      }
+
+      if (aulasQuery.error) throw aulasQuery.error;
 
       const aulasWithContent: AulaWithContent[] = await Promise.all(
-        (aulasData || []).map(async (aula) => {
-          const [videosResult, materiaisResult, quizzesResult] = await Promise.all([
+        (aulasQuery.data || []).map(async (aula) => {
+          const [videosOrdered, materiaisOrdered, quizzesResult] = await Promise.all([
             supabase
               .from('videos')
               .select('*')
@@ -77,6 +87,14 @@ export default function MateriaDetail() {
               .select('*')
               .eq('aula_id', aula.id),
           ]);
+
+          const videosResult = isMissingColumnError(videosOrdered.error)
+            ? await supabase.from('videos').select('*').eq('aula_id', aula.id)
+            : videosOrdered;
+
+          const materiaisResult = isMissingColumnError(materiaisOrdered.error)
+            ? await supabase.from('materiais_estudo').select('*').eq('aula_id', aula.id)
+            : materiaisOrdered;
 
           return {
             ...aula,

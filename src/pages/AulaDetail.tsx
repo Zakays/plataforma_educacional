@@ -13,6 +13,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FileText, Headphones, Brain, BookOpen, Download, ExternalLink } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+
+const isAbsoluteUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+
+const resolveMediaUrl = async (bucket: string, value: string): Promise<string | null> => {
+  if (!value) return null;
+  if (isAbsoluteUrl(value)) return value;
+
+  const { data: signedUrl } = await createSignedUrl(bucket, value, 7200);
+  return signedUrl;
+};
+
+const isMissingColumnError = (error: { code?: string } | null): boolean => error?.code === '42703';
+
 export default function AulaDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -48,7 +61,7 @@ export default function AulaDetail() {
 
       setAula(aulaData);
 
-      const { data: videoData } = await supabase
+      let videoQuery = await supabase
         .from('videos')
         .select('*')
         .eq('aula_id', id)
@@ -56,28 +69,49 @@ export default function AulaDetail() {
         .limit(1)
         .maybeSingle();
 
+      if (isMissingColumnError(videoQuery.error)) {
+        videoQuery = await supabase
+          .from('videos')
+          .select('*')
+          .eq('aula_id', id)
+          .limit(1)
+          .maybeSingle();
+      }
+
+      const { data: videoData, error: videoError } = videoQuery;
+      if (videoError && videoError.code !== 'PGRST116') throw videoError;
+
       if (videoData) {
         setVideo(videoData as Video);
-        const { data: signedUrl } = await createSignedUrl('videos', (videoData as Video).url, 7200);
-        if (signedUrl) {
-          setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: signedUrl }));
+        const mediaUrl = await resolveMediaUrl('videos', (videoData as Video).url);
+        if (mediaUrl) {
+          setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: mediaUrl }));
         }
       }
 
-      const { data: materiaisData } = await supabase
+      let materiaisQuery = await supabase
         .from('materiais_estudo')
         .select('*')
         .eq('aula_id', id)
         .order('ordem', { ascending: true });
 
-      if (materiaisData) {
-        setMateriais(materiaisData as MaterialEstudo[]);
-        for (const material of (materiaisData as MaterialEstudo[])) {
+      if (isMissingColumnError(materiaisQuery.error)) {
+        materiaisQuery = await supabase
+          .from('materiais_estudo')
+          .select('*')
+          .eq('aula_id', id);
+      }
+
+      if (materiaisQuery.error) throw materiaisQuery.error;
+
+      if (materiaisQuery.data) {
+        setMateriais(materiaisQuery.data as MaterialEstudo[]);
+        for (const material of (materiaisQuery.data as MaterialEstudo[])) {
           if (material.url) {
             const bucket = material.tipo === 'pdf' ? 'pdfs' : material.tipo === 'audio' ? 'audios' : 'mapas';
-            const { data: signedUrl } = await createSignedUrl(bucket, material.url, 7200);
-            if (signedUrl) {
-              setSignedUrls(prev => ({ ...prev, [material.id]: signedUrl }));
+            const mediaUrl = await resolveMediaUrl(bucket, material.url);
+            if (mediaUrl) {
+              setSignedUrls(prev => ({ ...prev, [material.id]: mediaUrl }));
             }
           }
         }
