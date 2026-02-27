@@ -74,11 +74,13 @@ export const parseFileName = (fileName: string): {
   numeroSubaula: number;
   titulo: string;
 } | null => {
-  const regex = /Aula\s+(\d+)\.(\d+)\s+-\s+(.+)/i;
-  const match = fileName.match(regex);
-  
+  const nameWithoutExtension = fileName.replace(/\.[^.]+$/, '');
+  const normalized = nameWithoutExtension.replace(/[_]+/g, ' ').trim();
+  const regex = /Aula\s+(\d+)\.(\d+)\s*[-–—:]\s*(.+)/i;
+  const match = normalized.match(regex);
+
   if (!match) return null;
-  
+
   return {
     numeroAula: parseInt(match[1], 10),
     numeroSubaula: parseInt(match[2], 10),
@@ -532,7 +534,9 @@ export const processFileUpload = async ({
         if (fileType === 'video') {
           const videoInserted = await insertVideo(aulaId, aulaInfo.titulo, uploadResult.url!);
           if (!videoInserted) {
-            message += ' (erro ao associar vídeo na tabela videos)';
+            const associationError = 'Erro ao associar vídeo na tabela videos';
+            const logId = await logUpload(userId, materiaId, fileName, fileType, 'erro', associationError, associationError, aulaId || undefined);
+            return { success: false, error: associationError, logId: logId || undefined };
           }
         } else if (fileType === 'csv') {
           const csvContent = await file.text();
@@ -547,7 +551,9 @@ export const processFileUpload = async ({
               questoes: questions,
             });
             if (!quizInserted) {
-              message += ' (erro ao associar quiz)';
+              const associationError = 'Erro ao associar quiz';
+              const logId = await logUpload(userId, materiaId, fileName, fileType, 'erro', associationError, associationError, aulaId || undefined);
+              return { success: false, error: associationError, logId: logId || undefined };
             }
           } else {
             const cards = parseFlashcardsCsv(csvContent);
@@ -560,7 +566,9 @@ export const processFileUpload = async ({
               conteudo: cards,
             });
             if (!flashcardInserted) {
-              message += ' (erro ao associar flashcards)';
+              const associationError = 'Erro ao associar flashcards';
+              const logId = await logUpload(userId, materiaId, fileName, fileType, 'erro', associationError, associationError, aulaId || undefined);
+              return { success: false, error: associationError, logId: logId || undefined };
             }
           }
         } else {
@@ -572,7 +580,9 @@ export const processFileUpload = async ({
             url: uploadResult.url!,
           });
           if (!materialInserted) {
-            message += ' (erro ao associar material na tabela materiais_estudo)';
+            const associationError = 'Erro ao associar material na tabela materiais_estudo';
+            const logId = await logUpload(userId, materiaId, fileName, fileType, 'erro', associationError, associationError, aulaId || undefined);
+            return { success: false, error: associationError, logId: logId || undefined };
           }
         }
       } else {
@@ -618,7 +628,9 @@ export const processFileUpload = async ({
           url: uploadResult.url!,
         });
         if (!materialInserted) {
-          message += ' (erro ao associar material)';
+          const associationError = 'Erro ao associar material';
+          const logId = await logUpload(userId, materiaId, fileName, fileType, 'erro', associationError, associationError);
+          return { success: false, error: associationError, logId: logId || undefined };
         }
       }
     }

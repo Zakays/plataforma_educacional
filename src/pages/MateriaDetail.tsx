@@ -155,7 +155,9 @@ export default function MateriaDetail() {
   const getAudioAulas = () => aulas.filter((aula) => aula.materiais.some((m) => m.tipo === 'audio'));
   const getPdfAulas = () => aulas.filter((aula) => aula.materiais.some((m) => m.tipo === 'pdf'));
 
-  const totalVideos = aulas.reduce((total, aula) => total + aula.videos.length, 0);
+  const totalVideos =
+    aulas.reduce((total, aula) => total + aula.videos.length, 0) +
+    materiaisGerais.filter((m) => m.tipo === 'video').length;
   const totalQuizzes =
     aulas.reduce((total, aula) => total + aula.quizzes.length, 0) + quizzesGerais.length;
   const totalAudios =
@@ -248,7 +250,7 @@ export default function MateriaDetail() {
             </TabsList>
 
             <TabsContent value="videos" className="space-y-4">
-              {getVideoAulas().length === 0 ? (
+              {totalVideos === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <PlayCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
@@ -258,32 +260,51 @@ export default function MateriaDetail() {
                   </CardContent>
                 </Card>
               ) : (
-                getVideoAulas().map((aula) => (
-                  <motion.div
-                    key={aula.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <Card
-                      className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
-                      onClick={() => handleAulaClick(aula.id)}
+                <>
+                  {getVideoAulas().map((aula) => (
+                    <motion.div
+                      key={aula.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
                     >
+                      <Card
+                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.01]"
+                        onClick={() => handleAulaClick(aula.id)}
+                      >
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <PlayCircle className="h-5 w-5 text-primary" />
+                            {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                          </CardTitle>
+                          <CardDescription>{aula.titulo}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">
+                            {aula.videos.length} vídeo{aula.videos.length !== 1 ? 's' : ''}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </motion.div>
+                  ))}
+
+                  {materiaisGerais.filter((m) => m.tipo === 'video').length > 0 && (
+                    <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                           <PlayCircle className="h-5 w-5 text-primary" />
-                          {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+                          Vídeos gerais da matéria
                         </CardTitle>
-                        <CardDescription>{aula.titulo}</CardDescription>
+                        <CardDescription>Vídeos sem associação com aula específica</CardDescription>
                       </CardHeader>
                       <CardContent>
                         <p className="text-sm text-muted-foreground">
-                          {aula.videos.length} vídeo{aula.videos.length !== 1 ? 's' : ''}
+                          {materiaisGerais.filter((m) => m.tipo === 'video').length} vídeo(s)
                         </p>
                       </CardContent>
                     </Card>
-                  </motion.div>
-                ))
+                  )}
+                </>
               )}
             </TabsContent>
 
