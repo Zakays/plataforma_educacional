@@ -117,28 +117,43 @@ export default function MateriaDetail() {
         .order('ordem', { ascending: true });
 
       if (isMissingColumnError(materiaisGeraisQuery.error)) {
-        materiaisGeraisQuery = await supabase
+        const fallbackGerais = await supabase
           .from('materiais_estudo')
           .select('*')
-          .eq('materia_id', id)
           .is('aula_id', null);
-      }
 
-      if (!materiaisGeraisQuery.error && materiaisGeraisQuery.data) {
+        if (!fallbackGerais.error && fallbackGerais.data) {
+          const filteredByPath = (fallbackGerais.data as MaterialEstudo[]).filter((material) => {
+            const urlCandidate = (material as unknown as { url?: string; url_storage?: string }).url
+              || (material as unknown as { url_storage?: string }).url_storage
+              || '';
+            return urlCandidate.includes(`/${id}/`) || urlCandidate.includes(id || '');
+          });
+          setMateriaisGerais(filteredByPath);
+        } else {
+          setMateriaisGerais([]);
+        }
+      } else if (!materiaisGeraisQuery.error && materiaisGeraisQuery.data) {
         setMateriaisGerais(materiaisGeraisQuery.data as MaterialEstudo[]);
       } else {
         setMateriaisGerais([]);
       }
 
-
-      const { data: quizzesGeraisData, error: quizzesGeraisError } = await supabase
+      const quizzesGerais = await supabase
         .from('quizzes')
         .select('*')
         .eq('materia_id', id)
         .is('aula_id', null);
 
-      if (!quizzesGeraisError && quizzesGeraisData) {
-        setQuizzesGerais(quizzesGeraisData as Quiz[]);
+      if (isMissingColumnError(quizzesGerais.error)) {
+        const fallbackQuizzesGerais = await supabase
+          .from('quizzes')
+          .select('*')
+          .is('aula_id', null);
+
+        setQuizzesGerais((fallbackQuizzesGerais.data || []) as Quiz[]);
+      } else if (!quizzesGerais.error && quizzesGerais.data) {
+        setQuizzesGerais(quizzesGerais.data as Quiz[]);
       } else {
         setQuizzesGerais([]);
       }
