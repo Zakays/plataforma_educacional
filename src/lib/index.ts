@@ -4,7 +4,7 @@ export const ROUTE_PATHS = {
   REGISTER: '/register',
   DASHBOARD: '/dashboard',
   MATERIA: '/materia/:id',
-  AULA: '/aula/:id',
+  AULA: '/materia/:materiaId/aula/:aulaId',
   ADMIN_UPLOAD: '/admin/upload',
   ADMIN_LOGS: '/admin/logs',
 } as const;
@@ -51,7 +51,8 @@ export interface Video {
   id: string;
   aula_id: string;
   titulo: string;
-  url: string;
+  url?: string;
+  url_storage?: string;
   duracao?: number;
   ordem: number;
   created_at: string;
@@ -117,10 +118,14 @@ export interface UploadLog {
   arquivo_nome: string;
   arquivo_tipo: string;
   status: UploadStatus;
-  mensagem?: string;
-  erro_detalhes?: string;
-  aula_criada_id?: string;
+  mensagem?: string | null;
+  erro_detalhes?: string | null;
+  aula_criada_id?: string | null;
   created_at: string;
+  // compatibilidade com schema atual do projeto
+  nome_arquivo?: string;
+  tipo?: string;
+  mensagem_erro?: string | null;
 }
 
 export const formatAulaTitle = (numeroAula: number, numeroSubaula: number): string => {

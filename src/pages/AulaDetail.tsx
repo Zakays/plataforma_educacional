@@ -13,8 +13,39 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FileText, Headphones, Brain, BookOpen, Download, ExternalLink } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+
+const isAbsoluteUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+
+const resolveMediaUrl = async (bucket: string, value: string): Promise<string | null> => {
+  if (!value) return null;
+  if (isAbsoluteUrl(value)) return value;
+
+  const { data: signedUrl } = await createSignedUrl(bucket, value, 7200);
+  return signedUrl;
+};
+
+const isMissingColumnError = (error: { code?: string } | null): boolean => error?.code === '42703';
+
+
+const getAulaNumbers = (aula: Aula | null): { numeroAula: number; numeroSubaula: number } => {
+  const numeroAula = Number((aula as any)?.numero_aula ?? (aula as any)?.aula_numero ?? 0);
+  const numeroSubaula = Number((aula as any)?.numero_subaula ?? (aula as any)?.assunto_numero ?? 0);
+  return {
+    numeroAula: Number.isFinite(numeroAula) ? numeroAula : 0,
+    numeroSubaula: Number.isFinite(numeroSubaula) ? numeroSubaula : 0,
+  };
+};
+
+const cleanAulaTitle = (rawTitle: string | undefined, numeroAula: number, numeroSubaula: number): string => {
+  if (!rawTitle) return 'Aula';
+  return rawTitle
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(new RegExp(`^Aula\\s+${numeroAula}\\.${numeroSubaula}\\s*[-–—:]\\s*`, 'i'), '')
+    .trim();
+};
+
 export default function AulaDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { aulaId } = useParams<{ materiaId: string; aulaId: string }>();
   const navigate = useNavigate();
   const [aula, setAula] = useState<Aula | null>(null);
   const [video, setVideo] = useState<Video | null>(null);
@@ -25,12 +56,12 @@ export default function AulaDetail() {
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (!id) {
+    if (!aulaId) {
       navigate('/dashboard');
       return;
     }
     loadAulaData();
-  }, [id]);
+  }, [aulaId]);
 
   const loadAulaData = async () => {
     try {
@@ -40,7 +71,7 @@ export default function AulaDetail() {
       const { data: aulaData, error: aulaError } = await supabase
         .from('aulas')
         .select('*')
-        .eq('id', id)
+        .eq('id', aulaId)
         .single();
 
       if (aulaError) throw aulaError;
@@ -48,36 +79,57 @@ export default function AulaDetail() {
 
       setAula(aulaData);
 
-      const { data: videoData } = await supabase
+      let videoQuery = await supabase
         .from('videos')
         .select('*')
-        .eq('aula_id', id)
+        .eq('aula_id', aulaId)
         .order('ordem', { ascending: true })
         .limit(1)
         .maybeSingle();
 
+      if (isMissingColumnError(videoQuery.error)) {
+        videoQuery = await supabase
+          .from('videos')
+          .select('*')
+          .eq('aula_id', aulaId)
+          .limit(1)
+          .maybeSingle();
+      }
+
+      const { data: videoData, error: videoError } = videoQuery;
+      if (videoError && videoError.code !== 'PGRST116') throw videoError;
+
       if (videoData) {
         setVideo(videoData as Video);
-        const { data: signedUrl } = await createSignedUrl('videos', (videoData as Video).url, 7200);
-        if (signedUrl) {
-          setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: signedUrl }));
+        const videoUrl = (videoData as Video).url || (videoData as Video).url_storage || '';
+        const mediaUrl = await resolveMediaUrl('conteudos', videoUrl);
+        if (mediaUrl) {
+          setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: mediaUrl }));
         }
       }
 
-      const { data: materiaisData } = await supabase
+      let materiaisQuery = await supabase
         .from('materiais_estudo')
         .select('*')
-        .eq('aula_id', id)
+        .eq('aula_id', aulaId)
         .order('ordem', { ascending: true });
 
-      if (materiaisData) {
-        setMateriais(materiaisData as MaterialEstudo[]);
-        for (const material of (materiaisData as MaterialEstudo[])) {
-          if (material.url) {
-            const bucket = material.tipo === 'pdf' ? 'pdfs' : material.tipo === 'audio' ? 'audios' : 'mapas';
-            const { data: signedUrl } = await createSignedUrl(bucket, material.url, 7200);
-            if (signedUrl) {
-              setSignedUrls(prev => ({ ...prev, [material.id]: signedUrl }));
+      if (isMissingColumnError(materiaisQuery.error)) {
+        materiaisQuery = await supabase
+          .from('materiais_estudo')
+          .select('*')
+          .eq('aula_id', aulaId);
+      }
+
+      if (materiaisQuery.error) throw materiaisQuery.error;
+
+      if (materiaisQuery.data) {
+        setMateriais(materiaisQuery.data as MaterialEstudo[]);
+        for (const material of (materiaisQuery.data as MaterialEstudo[])) {
+          if (material.url || (material as any).url_storage) {
+            const mediaUrl = await resolveMediaUrl('conteudos', material.url || (material as any).url_storage || '');
+            if (mediaUrl) {
+              setSignedUrls(prev => ({ ...prev, [material.id]: mediaUrl }));
             }
           }
         }
@@ -86,7 +138,7 @@ export default function AulaDetail() {
       const { data: quizzesData } = await supabase
         .from('quizzes')
         .select('*')
-        .eq('aula_id', id);
+        .eq('aula_id', aulaId);
 
       if (quizzesData) {
         setQuizzes(quizzesData);
@@ -176,14 +228,11 @@ export default function AulaDetail() {
         >
           <div className="mb-8">
             <h1 className="text-4xl font-bold mb-2">
-              {formatAulaTitle(aula.numero_aula, aula.numero_subaula)}
+              {cleanAulaTitle(aula.titulo, getAulaNumbers(aula).numeroAula, getAulaNumbers(aula).numeroSubaula)}
             </h1>
-            {aula.titulo && (
-              <h2 className="text-2xl text-muted-foreground font-medium">{aula.titulo}</h2>
-            )}
-            {aula.descricao && (
-              <p className="text-muted-foreground mt-4">{aula.descricao}</p>
-            )}
+            <p className="text-muted-foreground font-medium">
+              {formatAulaTitle(getAulaNumbers(aula).numeroAula, getAulaNumbers(aula).numeroSubaula)}
+            </p>
           </div>
 
           {video && signedUrls[video.id] && (
@@ -195,6 +244,11 @@ export default function AulaDetail() {
                     videoId={video.id}
                     aulaId={aula.id}
                   />
+                  {aula.descricao && (
+                    <div className="px-6 py-4 border-t">
+                      <p className="text-sm text-muted-foreground">{aula.descricao}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

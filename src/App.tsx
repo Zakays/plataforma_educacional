@@ -67,11 +67,7 @@ function AppRoutes() {
     <Routes>
       <Route
         path={ROUTE_PATHS.HOME}
-        element={
-          <PublicRoute>
-            <Login />
-          </PublicRoute>
-        }
+        element={<Navigate to={ROUTE_PATHS.DASHBOARD} replace />}
       />
       <Route
         path={ROUTE_PATHS.LOGIN}

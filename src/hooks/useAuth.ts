@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { User, Profile, ROUTE_PATHS } from '@/lib/index';
+import { useState, useEffect, useCallback } from 'react';
+import { User, Profile } from '@/lib/index';
 import {
   supabase,
   getCurrentUser,
@@ -20,7 +20,7 @@ interface AuthActions {
   register: (email: string, password: string, nome: string) => Promise<{ requiresEmailConfirmation: boolean }>;
   logout: () => Promise<void>;
   isAdmin: () => boolean;
-  refreshUser: () => Promise<void>;
+  refreshUser: (opts?: { silent?: boolean }) => Promise<void>;
 }
 
 export const useAuth = (): AuthState & AuthActions => {
@@ -31,34 +31,47 @@ export const useAuth = (): AuthState & AuthActions => {
     error: null,
   });
 
-  const refreshUser = async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+  const refreshUser = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) {
+      setState((prev) => ({ ...prev, loading: true, error: null }));
+    }
+
     const { user, profile, error } = await getCurrentUser();
-    setState({ user, profile, loading: false, error });
-  };
+
+    setState((prev) => ({
+      user,
+      profile,
+      loading: false,
+      error: error ?? (silent ? prev.error : null),
+    }));
+  }, []);
 
   useEffect(() => {
+    const timeout = setTimeout(() => {
+      setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
+    }, 10000);
+
     refreshUser();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          await refreshUser();
-        } else if (event === 'SIGNED_OUT') {
-          setState({ user: null, profile: null, loading: false, error: null });
-        }
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        await refreshUser({ silent: true });
+      } else if (event === 'SIGNED_OUT') {
+        setState({ user: null, profile: null, loading: false, error: null });
       }
-    );
+    });
 
     return () => {
+      clearTimeout(timeout);
       authListener.subscription.unsubscribe();
     };
-  }, []);
+  }, [refreshUser]);
 
   const login = async (email: string, password: string) => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
-    const { user, error } = await supabaseSignIn(email, password);
-    
+    const { error } = await supabaseSignIn(email, password);
+
     if (error) {
       setState((prev) => ({ ...prev, loading: false, error }));
       throw error;
@@ -83,7 +96,7 @@ export const useAuth = (): AuthState & AuthActions => {
   const logout = async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     const { error } = await supabaseSignOut();
-    
+
     if (error) {
       setState((prev) => ({ ...prev, loading: false, error }));
       throw error;

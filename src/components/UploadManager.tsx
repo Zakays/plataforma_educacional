@@ -1,9 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Upload, FileText, CheckCircle, XCircle, Loader2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import { processFileUpload } from '@/services/uploadService';
 import { useAuth } from '@/hooks/useAuth';
 import type { Materia } from '@/lib/index';
@@ -12,6 +15,18 @@ import { supabase } from '@/lib/supabase';
 interface UploadManagerProps {
   materiaId?: string;
 }
+
+
+const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+
+  return 'Erro desconhecido';
+};
 
 interface UploadItem {
   file: File;
@@ -26,26 +41,99 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
   const [materias, setMaterias] = useState<Materia[]>([]);
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isCreatingMateria, setIsCreatingMateria] = useState(false);
+  const [newMateriaNome, setNewMateriaNome] = useState('');
+  const [newMateriaDescricao, setNewMateriaDescricao] = useState('');
+  const [newMateriaOrdem, setNewMateriaOrdem] = useState('');
+  const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const fetchMaterias = async () => {
-      const { data, error } = await supabase
-        .from('materias')
-        .select('*')
-        .order('ordem', { ascending: true });
 
-      if (!error && data) {
-        const materiasData = data as Materia[];
-        setMaterias(materiasData);
-        if (!propMateriaId && materiasData.length > 0) {
-          setSelectedMateriaId(materiasData[0].id);
+  const fetchMaterias = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('materias')
+      .select('*')
+      .order('ordem', { ascending: true });
+
+    if (!error && data) {
+      const materiasData = data as Materia[];
+      setMaterias(materiasData);
+      if (!propMateriaId && !selectedMateriaId && materiasData.length > 0) {
+        setSelectedMateriaId(materiasData[0].id);
+      }
+    }
+  }, [propMateriaId, selectedMateriaId]);
+
+  useEffect(() => {
+    fetchMaterias();
+  }, [fetchMaterias]);
+
+
+  const handleCreateMateria = async () => {
+    const nome = newMateriaNome.trim();
+
+    if (!nome) {
+      toast({
+        title: 'Nome obrigatório',
+        description: 'Informe o nome da nova matéria.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsCreatingMateria(true);
+
+    try {
+      const ordemNumber = newMateriaOrdem.trim() ? Number(newMateriaOrdem) : materias.length + 1;
+      const materiaPayload: Record<string, string | number | null> = {
+        nome,
+        descricao: newMateriaDescricao.trim() || null,
+        ordem: Number.isFinite(ordemNumber) ? ordemNumber : materias.length + 1,
+      };
+
+      let response = await supabase
+        .from('materias')
+        .insert(materiaPayload as any)
+        .select('*')
+        .single();
+
+      if (response.error?.code === '42703') {
+        const missingColumn = response.error.message.match(/column\s+materias\.([a-zA-Z0-9_]+)/i)?.[1];
+
+        if (missingColumn) {
+          delete materiaPayload[missingColumn];
+
+          response = await supabase
+            .from('materias')
+            .insert(materiaPayload as any)
+            .select('*')
+            .single();
         }
       }
-    };
 
-    fetchMaterias();
-  }, [propMateriaId]);
+      if (response.error) throw response.error;
+
+      const createdMateria = response.data as Materia;
+      setSelectedMateriaId(createdMateria.id);
+      setNewMateriaNome('');
+      setNewMateriaDescricao('');
+      setNewMateriaOrdem('');
+      await fetchMaterias();
+
+      toast({
+        title: 'Matéria criada',
+        description: `A matéria "${createdMateria.nome}" foi adicionada com sucesso.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Erro ao criar matéria',
+        description: extractErrorMessage(error),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsCreatingMateria(false);
+    }
+  };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -127,6 +215,70 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+
+          {!propMateriaId && (
+            <div className="space-y-4 rounded-md border border-border p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Nova Matéria</h3>
+                <p className="text-xs text-muted-foreground">
+                  Crie uma matéria antes de iniciar o upload, se necessário.
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Nome</label>
+                  <Input
+                    placeholder="Ex: Matemática"
+                    value={newMateriaNome}
+                    onChange={(e) => setNewMateriaNome(e.target.value)}
+                    disabled={isCreatingMateria || isUploading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Ordem (opcional)</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    placeholder="Ex: 1"
+                    value={newMateriaOrdem}
+                    onChange={(e) => setNewMateriaOrdem(e.target.value)}
+                    disabled={isCreatingMateria || isUploading}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Descrição (opcional)</label>
+                <Textarea
+                  placeholder="Descrição curta da matéria"
+                  value={newMateriaDescricao}
+                  onChange={(e) => setNewMateriaDescricao(e.target.value)}
+                  disabled={isCreatingMateria || isUploading}
+                />
+              </div>
+
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleCreateMateria}
+                disabled={isCreatingMateria || isUploading}
+              >
+                {isCreatingMateria ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Criando matéria...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Adicionar Matéria
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
           {!propMateriaId && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
@@ -159,7 +311,7 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
                 onChange={handleFileSelect}
                 className="hidden"
                 id="file-upload"
-                accept=".mp4,.webm,.mov,.pdf,.mp3,.wav,.m4a"
+                accept=".mp4,.webm,.mov,.pdf,.mp3,.wav,.m4a,.csv"
               />
               <label htmlFor="file-upload">
                 <Button type="button" variant="outline" asChild>
