@@ -118,10 +118,14 @@ export interface UploadLog {
   arquivo_nome: string;
   arquivo_tipo: string;
   status: UploadStatus;
-  mensagem?: string;
-  erro_detalhes?: string;
-  aula_criada_id?: string;
+  mensagem?: string | null;
+  erro_detalhes?: string | null;
+  aula_criada_id?: string | null;
   created_at: string;
+  // compatibilidade com schema atual do projeto
+  nome_arquivo?: string;
+  tipo?: string;
+  mensagem_erro?: string | null;
 }
 
 export const formatAulaTitle = (numeroAula: number, numeroSubaula: number): string => {
