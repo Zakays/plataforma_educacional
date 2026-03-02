@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Quiz, QuizAttempt } from '@/lib/index';
 
@@ -12,10 +12,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface QuizComponentProps {
   quizId: string;
-  aulaId?: string;
 }
 
-export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
+export function QuizComponent({ quizId }: QuizComponentProps) {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -28,12 +27,7 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
   } | null>(null);
   const [tentativaAnterior, setTentativaAnterior] = useState<QuizAttempt | null>(null);
 
-  useEffect(() => {
-    loadQuiz();
-    loadTentativaAnterior();
-  }, [quizId]);
-
-  const loadQuiz = async () => {
+  const loadQuiz = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -42,7 +36,7 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
         .from('quizzes')
         .select('*')
         .eq('id', quizId)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
       if (!data) throw new Error('Quiz não encontrado');
@@ -50,15 +44,19 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
       setQuiz(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar quiz');
+      setQuiz(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [quizId]);
 
-  const loadTentativaAnterior = async () => {
+  const loadTentativaAnterior = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setTentativaAnterior(null);
+        return;
+      }
 
       const { data, error: fetchError } = await supabase
         .from('quiz_attempts')
@@ -70,11 +68,17 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
         .maybeSingle();
 
       if (fetchError) throw fetchError;
-      if (data) setTentativaAnterior(data);
+      setTentativaAnterior(data ?? null);
     } catch (err) {
       console.error('Erro ao carregar tentativa anterior:', err);
+      setTentativaAnterior(null);
     }
-  };
+  }, [quizId]);
+
+  useEffect(() => {
+    void loadQuiz();
+    void loadTentativaAnterior();
+  }, [loadQuiz, loadTentativaAnterior]);
 
   const handleRespostaChange = (questaoId: string, opcaoIndex: number) => {
     setRespostas(prev => ({
@@ -221,7 +225,7 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
 
                 <RadioGroup
                   value={respostaUsuario?.toString()}
-                  onValueChange={(value) => handleRespostaChange(questao.id, parseInt(value))}
+                  onValueChange={(value) => handleRespostaChange(questao.id, parseInt(value, 10))}
                   disabled={mostrarFeedback}
                   className="ml-11 space-y-3"
                 >

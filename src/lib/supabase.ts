@@ -104,9 +104,9 @@ export const getCurrentUser = async (): Promise<{
       .from('profiles')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError) throw profileError;
+    if (profileError && profileError.code !== 'PGRST116') throw profileError;
 
     return {
       user: {
@@ -114,7 +114,7 @@ export const getCurrentUser = async (): Promise<{
         email: user.email!,
         created_at: user.created_at,
       },
-      profile,
+      profile: profile || null,
       error: null,
     };
   } catch (error) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { supabase } from '@/lib/supabase';
@@ -27,15 +27,9 @@ export default function MateriaDetail() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('videos');
 
-  useEffect(() => {
-    if (!id) {
-      navigate(ROUTE_PATHS.DASHBOARD);
-      return;
-    }
-    loadMateriaData();
-  }, [id]);
+  const loadMateriaData = useCallback(async () => {
+    if (!id) return;
 
-  const loadMateriaData = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -93,7 +87,16 @@ export default function MateriaDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
+
+  useEffect(() => {
+    if (!id) {
+      navigate(ROUTE_PATHS.DASHBOARD);
+      return;
+    }
+
+    void loadMateriaData();
+  }, [id, navigate, loadMateriaData]);
 
   const getVideoAulas = () => {
     return aulas.filter((aula) => aula.videos.length > 0);

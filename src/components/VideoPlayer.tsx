@@ -9,10 +9,9 @@ import { useToast } from '@/hooks/use-toast';
 interface VideoPlayerProps {
   videoUrl: string;
   videoId: string;
-  aulaId: string;
 }
 
-export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
+export function VideoPlayer({ videoUrl, videoId }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -23,6 +22,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const { toast } = useToast();
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -36,6 +36,11 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
     };
     getUserId();
   }, []);
+
+  useEffect(() => {
+    setIsLoading(true);
+    setHasError(false);
+  }, [videoUrl]);
 
   useEffect(() => {
     if (!userId || !videoId) return;
@@ -58,6 +63,17 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
       setIsLoading(false);
+      setHasError(false);
+    };
+
+    const handleError = () => {
+      setIsLoading(false);
+      setHasError(true);
+      toast({
+        title: 'Erro ao carregar vídeo',
+        description: 'Este arquivo pode estar indisponível ou em formato não suportado.',
+        variant: 'destructive',
+      });
     };
 
     const handleTimeUpdate = () => {
@@ -85,6 +101,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('play', handlePlay);
+    video.addEventListener('error', handleError);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
 
@@ -92,10 +109,11 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('play', handlePlay);
+      video.removeEventListener('error', handleError);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
     };
-  }, [videoId, userId]);
+  }, [videoId, userId, toast]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -110,9 +128,13 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
-    } else {
-      videoRef.current.play();
+      return;
     }
+
+    videoRef.current.play().catch(() => {
+      setIsPlaying(false);
+      setHasError(true);
+    });
   };
 
   const handleSeek = (value: number[]) => {
@@ -150,7 +172,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
       } else {
         await document.exitFullscreen();
       }
-    } catch (error) {
+    } catch {
       toast({
         title: 'Erro',
         description: 'Não foi possível alternar tela cheia',
@@ -186,6 +208,13 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
         className="w-full aspect-video"
         onClick={togglePlay}
       />
+
+
+      {hasError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6 text-center">
+          <p className="text-sm text-white/90">Não foi possível reproduzir este vídeo. Recarregue a página ou tente novamente em instantes.</p>
+        </div>
+      )}
 
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { VideoPlayer } from '@/components/VideoPlayer';
@@ -13,6 +13,62 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FileText, Headphones, Brain, BookOpen, Download, ExternalLink } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+const resolveStorageReference = (storedValue: string): { bucket: string; path: string } | null => {
+  if (!storedValue) return null;
+
+  if (storedValue.startsWith('http')) {
+    try {
+      const url = new URL(storedValue);
+      const signMatch = url.pathname.match(/\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/);
+      if (signMatch) {
+        return {
+          bucket: decodeURIComponent(signMatch[1]),
+          path: decodeURIComponent(signMatch[2]),
+        };
+      }
+
+      const publicMatch = url.pathname.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
+      if (publicMatch) {
+        return {
+          bucket: decodeURIComponent(publicMatch[1]),
+          path: decodeURIComponent(publicMatch[2]),
+        };
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
+const buildSignedUrl = async (
+  storedValue: string,
+  fallbackBucket?: string,
+  preferConteudos: boolean = false
+): Promise<string | null> => {
+  const directReference = resolveStorageReference(storedValue);
+
+  if (directReference) {
+    const { data: signedUrl } = await createSignedUrl(directReference.bucket, directReference.path, 7200);
+    return signedUrl;
+  }
+
+  const bucketsToTry = [
+    ...(preferConteudos ? ['conteudos'] : []),
+    ...(fallbackBucket ? [fallbackBucket] : []),
+    ...(!preferConteudos ? ['conteudos'] : []),
+  ];
+
+  for (const bucket of bucketsToTry) {
+    const { data: signedUrl } = await createSignedUrl(bucket, storedValue, 7200);
+    if (signedUrl) return signedUrl;
+  }
+
+  return null;
+};
+
+
 export default function AulaDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -24,15 +80,9 @@ export default function AulaDetail() {
   const [error, setError] = useState<string | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (!id) {
-      navigate('/dashboard');
-      return;
-    }
-    loadAulaData();
-  }, [id]);
+  const loadAulaData = useCallback(async () => {
+    if (!id) return;
 
-  const loadAulaData = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -58,7 +108,7 @@ export default function AulaDetail() {
 
       if (videoData) {
         setVideo(videoData as Video);
-        const { data: signedUrl } = await createSignedUrl('videos', (videoData as Video).url, 7200);
+        const signedUrl = await buildSignedUrl((videoData as Video).url, 'videos', true);
         if (signedUrl) {
           setSignedUrls(prev => ({ ...prev, [(videoData as Video).id]: signedUrl }));
         }
@@ -74,8 +124,8 @@ export default function AulaDetail() {
         setMateriais(materiaisData as MaterialEstudo[]);
         for (const material of (materiaisData as MaterialEstudo[])) {
           if (material.url) {
-            const bucket = material.tipo === 'pdf' ? 'pdfs' : material.tipo === 'audio' ? 'audios' : 'mapas';
-            const { data: signedUrl } = await createSignedUrl(bucket, material.url, 7200);
+            const fallbackBucket = material.tipo === 'pdf' ? 'pdfs' : material.tipo === 'audio' ? 'audios' : 'mapas';
+            const signedUrl = await buildSignedUrl(material.url, fallbackBucket, true);
             if (signedUrl) {
               setSignedUrls(prev => ({ ...prev, [material.id]: signedUrl }));
             }
@@ -96,7 +146,16 @@ export default function AulaDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, navigate]);
+
+  useEffect(() => {
+    if (!id) {
+      navigate('/dashboard');
+      return;
+    }
+
+    void loadAulaData();
+  }, [id, navigate, loadAulaData]);
 
   const getMaterialIcon = (tipo: string) => {
     switch (tipo) {
@@ -193,7 +252,6 @@ export default function AulaDetail() {
                   <VideoPlayer
                     videoUrl={signedUrls[video.id]}
                     videoId={video.id}
-                    aulaId={aula.id}
                   />
                 </CardContent>
               </Card>
@@ -344,7 +402,7 @@ export default function AulaDetail() {
               <TabsContent value="quiz" className="mt-6">
                 <div className="space-y-6">
                   {quizzes.map((quiz) => (
-                    <QuizComponent key={quiz.id} quizId={quiz.id} aulaId={aula.id} />
+                    <QuizComponent key={quiz.id} quizId={quiz.id} />
                   ))}
                 </div>
               </TabsContent>
