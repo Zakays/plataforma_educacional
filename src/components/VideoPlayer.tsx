@@ -9,10 +9,10 @@ import { useToast } from '@/hooks/use-toast';
 interface VideoPlayerProps {
   videoUrl: string;
   videoId: string;
-  aulaId: string;
+  onSourceError?: () => Promise<void> | void;
 }
 
-export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
+export function VideoPlayer({ videoUrl, videoId, onSourceError }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -27,6 +27,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
   const { toast } = useToast();
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasMarkedCompleteRef = useRef(false);
+  const isRecoveringSourceRef = useRef(false);
 
   useEffect(() => {
     const getUserId = async () => {
@@ -87,20 +88,42 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
       }
     };
 
+    const handleLoadStart = () => {
+      setIsLoading(true);
+    };
+
+    const handleError = async () => {
+      if (!onSourceError || isRecoveringSourceRef.current) {
+        setIsLoading(false);
+        return;
+      }
+
+      isRecoveringSourceRef.current = true;
+      try {
+        await onSourceError();
+      } finally {
+        isRecoveringSourceRef.current = false;
+      }
+    };
+
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('loadstart', handleLoadStart);
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('play', handlePlay);
     video.addEventListener('pause', handlePause);
     video.addEventListener('ended', handleEnded);
+    video.addEventListener('error', handleError);
 
     return () => {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('timeupdate', handleTimeUpdate);
       video.removeEventListener('play', handlePlay);
       video.removeEventListener('pause', handlePause);
       video.removeEventListener('ended', handleEnded);
+      video.removeEventListener('error', handleError);
     };
-  }, [videoId, userId]);
+  }, [videoId, userId, onSourceError]);
 
   useEffect(() => {
     return () => {
@@ -163,7 +186,7 @@ export function VideoPlayer({ videoUrl, videoId, aulaId }: VideoPlayerProps) {
       } else {
         await document.exitFullscreen();
       }
-    } catch (error) {
+    } catch {
       toast({
         title: 'Erro',
         description: 'Não foi possível alternar tela cheia',

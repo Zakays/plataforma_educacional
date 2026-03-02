@@ -116,7 +116,7 @@ export default function MateriaDetail() {
 
       setAulas(aulasWithContent);
 
-      let materiaisGeraisQuery = await supabase
+      const materiaisGeraisQuery = await supabase
         .from('materiais_estudo')
         .select('*')
         .eq('materia_id', id)

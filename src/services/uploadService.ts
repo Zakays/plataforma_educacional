@@ -430,24 +430,6 @@ const insertQuiz = async ({
   try {
     if (questoes.length === 0) return false;
 
-    const rowPayload = questoes.map((q) => {
-      const row: Record<string, unknown> = {
-        pergunta: q.pergunta,
-        opcao_a: q.opcoes[0] || '',
-        opcao_b: q.opcoes[1] || '',
-        opcao_c: q.opcoes[2] || '',
-        opcao_d: q.opcoes[3] || '',
-        resposta_correta: ['a', 'b', 'c', 'd'][q.resposta_correta] || 'a',
-      };
-      if (aulaId) row.aula_id = aulaId;
-      if (materiaId) row.materia_id = materiaId;
-      return row;
-    });
-
-    let response = await supabase.from('quizzes').insert(rowPayload as any);
-
-    if (!response.error) return true;
-
     const payload: Record<string, unknown> = {
       titulo,
       questoes,
@@ -456,32 +438,49 @@ const insertQuiz = async ({
     if (aulaId) payload.aula_id = aulaId;
     if (materiaId) payload.materia_id = materiaId;
 
-    response = await supabase.from('quizzes').insert(payload as any);
+    let response = await supabase.from('quizzes').insert(payload as any);
+
+    if (!response.error) return true;
+
+    const rowPayload = questoes.map((q) => {
+      const row: Record<string, unknown> = {
+        pergunta: q.pergunta,
+        opcao_a: q.opcoes[0] || '',
+        opcao_b: q.opcoes[1] || '',
+        opcao_c: q.opcoes[2] || '',
+        opcao_d: q.opcoes[3] || '',
+        resposta_correta: q.resposta_correta,
+        titulo,
+      };
+      if (aulaId) row.aula_id = aulaId;
+      if (materiaId) row.materia_id = materiaId;
+      return row;
+    });
 
     if (response.error?.code === '42703') {
       const missingColumn = getMissingColumnName(response.error.message);
 
-      if (missingColumn === 'questoes') {
-        // fallback para schema de questões linha-a-linha
-        if (questoes.length === 0) return false;
-        const rowPayload = questoes.map((q) => {
-          const row: Record<string, unknown> = {
-            pergunta: q.pergunta,
-            opcao_a: q.opcoes[0] || '',
-            opcao_b: q.opcoes[1] || '',
-            opcao_c: q.opcoes[2] || '',
-            opcao_d: q.opcoes[3] || '',
-            resposta_correta: q.resposta_correta,
-          };
-          if (aulaId) row.aula_id = aulaId;
-          if (materiaId) row.materia_id = materiaId;
-          return row;
-        });
-
-        response = await supabase.from('quizzes').insert(rowPayload as any);
-      } else if (missingColumn) {
+      if (missingColumn && missingColumn !== 'questoes') {
         delete payload[missingColumn];
         response = await supabase.from('quizzes').insert(payload as any);
+
+        if (!response.error) return true;
+      }
+    }
+
+    response = await supabase.from('quizzes').insert(rowPayload as any);
+
+    if (response.error?.code === '42703') {
+      const missingColumn = getMissingColumnName(response.error.message);
+
+      if (missingColumn) {
+        const sanitizedRowPayload = rowPayload.map((row) => {
+          const clone = { ...row };
+          delete clone[missingColumn];
+          return clone;
+        });
+
+        response = await supabase.from('quizzes').insert(sanitizedRowPayload as any);
       }
     }
 
