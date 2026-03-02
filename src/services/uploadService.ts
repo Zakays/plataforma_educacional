@@ -34,7 +34,7 @@ export const uploadToStorage = async (
   file: File,
   materiaId: string,
   path: string
-): Promise<{ success: boolean; url?: string; error?: string }> => {
+): Promise<{ success: boolean; path?: string; error?: string }> => {
   try {
     const { data, error } = await supabase.storage
       .from('conteudos')
@@ -45,13 +45,9 @@ export const uploadToStorage = async (
 
     if (error) throw error;
 
-    const { data: urlData } = await supabase.storage
-      .from('conteudos')
-      .createSignedUrl(path, 3600);
-
     return {
       success: true,
-      url: urlData?.signedUrl,
+      path: data?.path || path,
     };
   } catch (error) {
     return {
@@ -246,7 +242,7 @@ export const processFileUpload = async ({
         
         // Inserir registro específico por tipo
         if (fileType === 'video') {
-          const videoInserted = await insertVideo(aulaId, aulaInfo.titulo, uploadResult.url!);
+          const videoInserted = await insertVideo(aulaId, aulaInfo.titulo, uploadResult.path!);
           if (!videoInserted) {
             message += ' (erro ao associar vídeo)';
           }
@@ -255,7 +251,7 @@ export const processFileUpload = async ({
             aulaId,
             materialTipo,
             aulaInfo.titulo,
-            uploadResult.url!
+            uploadResult.path!
           );
           if (!materialInserted) {
             message += ' (erro ao associar material)';
@@ -270,7 +266,7 @@ export const processFileUpload = async ({
         materiaId, // usar materiaId como aula_id quando não há padrão
         materialTipo,
         fileName,
-        uploadResult.url!
+        uploadResult.path!
       );
       if (!materialInserted) {
         message += ' (erro ao associar material)';
