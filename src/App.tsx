@@ -12,6 +12,7 @@ import MateriaDetail from "@/pages/MateriaDetail";
 import AulaDetail from "@/pages/AulaDetail";
 import AdminUpload from "@/pages/AdminUpload";
 import AdminLogs from "@/pages/AdminLogs";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -135,9 +136,11 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

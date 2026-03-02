@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { VideoPlayer } from '@/components/VideoPlayer';
@@ -20,11 +20,16 @@ const resolveMediaUrl = async (bucket: string, value: string): Promise<string | 
   if (!value) return null;
   if (isAbsoluteUrl(value)) return value;
 
-  const { data: signedUrl } = await createSignedUrl(bucket, value, 7200);
+  const { data: signedUrl } = await createSignedUrl(bucket, value, 604800);
   return signedUrl;
 };
 
 const isMissingColumnError = (error: { code?: string } | null): boolean => error?.code === '42703';
+
+
+const getMaterialUrlCandidate = (material: MaterialEstudo): string => {
+  return material.url || (material as unknown as { url_storage?: string }).url_storage || '';
+};
 
 
 const getAulaNumbers = (aula: Aula | null): { numeroAula: number; numeroSubaula: number } => {
@@ -55,15 +60,7 @@ export default function AulaDetail() {
   const [error, setError] = useState<string | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (!aulaId) {
-      navigate('/dashboard');
-      return;
-    }
-    loadAulaData();
-  }, [aulaId]);
-
-  const loadAulaData = async () => {
+  const loadAulaData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -148,6 +145,54 @@ export default function AulaDetail() {
     } finally {
       setLoading(false);
     }
+  }, [aulaId]);
+
+  useEffect(() => {
+    if (!aulaId) {
+      navigate('/dashboard');
+      return;
+    }
+
+    void loadAulaData();
+  }, [aulaId, navigate, loadAulaData]);
+
+  const refreshResourceUrl = async (resourceId: string, rawValue: string): Promise<string | null> => {
+    const refreshedUrl = await resolveMediaUrl('conteudos', rawValue);
+    if (!refreshedUrl) return null;
+
+    setSignedUrls((prev) => ({ ...prev, [resourceId]: refreshedUrl }));
+    return refreshedUrl;
+  };
+
+  const handleVideoSourceError = async () => {
+    if (!video) return;
+    const rawVideoUrl = video.url || (video as unknown as { url_storage?: string }).url_storage || '';
+    if (!rawVideoUrl) return;
+    await refreshResourceUrl(video.id, rawVideoUrl);
+  };
+
+  const openMaterialResource = async (material: MaterialEstudo) => {
+    const rawUrl = getMaterialUrlCandidate(material);
+    if (!rawUrl) return;
+
+    const nextUrl = await refreshResourceUrl(material.id, rawUrl);
+    if (nextUrl) {
+      window.open(nextUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const downloadMaterialResource = async (material: MaterialEstudo) => {
+    const rawUrl = getMaterialUrlCandidate(material);
+    if (!rawUrl) return;
+
+    const nextUrl = await refreshResourceUrl(material.id, rawUrl);
+    if (!nextUrl) return;
+
+    const link = document.createElement('a');
+    link.href = nextUrl;
+    link.download = material.titulo;
+    link.rel = 'noopener';
+    link.click();
   };
 
   const getMaterialIcon = (tipo: string) => {
@@ -242,7 +287,7 @@ export default function AulaDetail() {
                   <VideoPlayer
                     videoUrl={signedUrls[video.id]}
                     videoId={video.id}
-                    aulaId={aula.id}
+                    onSourceError={handleVideoSourceError}
                   />
                   {aula.descricao && (
                     <div className="px-6 py-4 border-t">
@@ -292,7 +337,7 @@ export default function AulaDetail() {
                               variant="outline"
                               size="sm"
                               className="flex-1"
-                              onClick={() => window.open(signedUrls[material.id], '_blank')}
+                              onClick={() => void openMaterialResource(material)}
                             >
                               <ExternalLink className="w-4 h-4 mr-2" />
                               Visualizar
@@ -301,12 +346,7 @@ export default function AulaDetail() {
                               variant="outline"
                               size="sm"
                               className="flex-1"
-                              onClick={() => {
-                                const link = document.createElement('a');
-                                link.href = signedUrls[material.id];
-                                link.download = material.titulo;
-                                link.click();
-                              }}
+                              onClick={() => void downloadMaterialResource(material)}
                             >
                               <Download className="w-4 h-4 mr-2" />
                               Baixar
@@ -373,7 +413,7 @@ export default function AulaDetail() {
                           <Button
                             variant="outline"
                             className="w-full"
-                            onClick={() => window.open(signedUrls[material.id], '_blank')}
+                            onClick={() => void openMaterialResource(material)}
                           >
                             <ExternalLink className="w-4 h-4 mr-2" />
                             Visualizar Mapa
@@ -398,7 +438,7 @@ export default function AulaDetail() {
               <TabsContent value="quiz" className="mt-6">
                 <div className="space-y-6">
                   {quizzes.map((quiz) => (
-                    <QuizComponent key={quiz.id} quizId={quiz.id} aulaId={aula.id} />
+                    <QuizComponent key={quiz.id} quizId={quiz.id} />
                   ))}
                 </div>
               </TabsContent>
@@ -447,19 +487,14 @@ export default function AulaDetail() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => window.open(signedUrls[material.id], '_blank')}
+                                    onClick={() => void openMaterialResource(material)}
                                   >
                                     <ExternalLink className="w-4 h-4" />
                                   </Button>
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => {
-                                      const link = document.createElement('a');
-                                      link.href = signedUrls[material.id];
-                                      link.download = material.titulo;
-                                      link.click();
-                                    }}
+                                    onClick={() => void downloadMaterialResource(material)}
                                   >
                                     <Download className="w-4 h-4" />
                                   </Button>
@@ -518,7 +553,7 @@ export default function AulaDetail() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => window.open(signedUrls[material.id], '_blank')}
+                                  onClick={() => void openMaterialResource(material)}
                                 >
                                   <ExternalLink className="w-4 h-4" />
                                 </Button>

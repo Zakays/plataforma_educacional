@@ -1,120 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import { User, Profile } from '@/lib/index';
-import {
-  supabase,
-  getCurrentUser,
-  signIn as supabaseSignIn,
-  signUp as supabaseSignUp,
-  signOut as supabaseSignOut,
-} from '@/lib/supabase';
+import { useContext } from 'react';
+import { AuthContext } from '@/contexts/AuthContext';
 
-interface AuthState {
-  user: User | null;
-  profile: Profile | null;
-  loading: boolean;
-  error: Error | null;
-}
+export const useAuth = () => {
+  const context = useContext(AuthContext);
 
-interface AuthActions {
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, nome: string) => Promise<{ requiresEmailConfirmation: boolean }>;
-  logout: () => Promise<void>;
-  isAdmin: () => boolean;
-  refreshUser: (opts?: { silent?: boolean }) => Promise<void>;
-}
+  if (!context) {
+    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
+  }
 
-export const useAuth = (): AuthState & AuthActions => {
-  const [state, setState] = useState<AuthState>({
-    user: null,
-    profile: null,
-    loading: true,
-    error: null,
-  });
-
-  const refreshUser = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = opts?.silent ?? false;
-    if (!silent) {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
-    }
-
-    const { user, profile, error } = await getCurrentUser();
-
-    setState((prev) => ({
-      user,
-      profile,
-      loading: false,
-      error: error ?? (silent ? prev.error : null),
-    }));
-  }, []);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      setState((prev) => (prev.loading ? { ...prev, loading: false } : prev));
-    }, 10000);
-
-    refreshUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        await refreshUser({ silent: true });
-      } else if (event === 'SIGNED_OUT') {
-        setState({ user: null, profile: null, loading: false, error: null });
-      }
-    });
-
-    return () => {
-      clearTimeout(timeout);
-      authListener.subscription.unsubscribe();
-    };
-  }, [refreshUser]);
-
-  const login = async (email: string, password: string) => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    const { error } = await supabaseSignIn(email, password);
-
-    if (error) {
-      setState((prev) => ({ ...prev, loading: false, error }));
-      throw error;
-    }
-
-    await refreshUser();
-  };
-
-  const register = async (email: string, password: string, nome: string) => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    const { error, requiresEmailConfirmation } = await supabaseSignUp(email, password, nome);
-
-    if (error) {
-      setState((prev) => ({ ...prev, loading: false, error }));
-      throw error;
-    }
-
-    await refreshUser();
-    return { requiresEmailConfirmation };
-  };
-
-  const logout = async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null }));
-    const { error } = await supabaseSignOut();
-
-    if (error) {
-      setState((prev) => ({ ...prev, loading: false, error }));
-      throw error;
-    }
-
-    setState({ user: null, profile: null, loading: false, error: null });
-  };
-
-  const isAdmin = (): boolean => {
-    return state.profile?.role === 'admin';
-  };
-
-  return {
-    ...state,
-    login,
-    register,
-    logout,
-    isAdmin,
-    refreshUser,
-  };
+  return context;
 };

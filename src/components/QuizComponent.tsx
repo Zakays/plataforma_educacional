@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Quiz, QuizAttempt } from '@/lib/index';
 
@@ -12,10 +12,47 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface QuizComponentProps {
   quizId: string;
-  aulaId?: string;
 }
 
-export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
+const normalizeQuiz = (raw: unknown): Quiz => {
+  const source = (raw ?? {}) as Record<string, any>;
+  const hasQuestoesArray = Array.isArray(source?.questoes);
+
+  if (hasQuestoesArray) {
+    return {
+      ...source,
+      questoes: source.questoes.map((q: any, index: number) => ({
+        id: q?.id || `${String(source.id || 'quiz')}-q-${index}`,
+        pergunta: q?.pergunta || '',
+        opcoes: Array.isArray(q?.opcoes) ? q.opcoes : [q?.opcao_a || '', q?.opcao_b || '', q?.opcao_c || '', q?.opcao_d || ''],
+        resposta_correta:
+          typeof q?.resposta_correta === 'number'
+            ? q.resposta_correta
+            : ['a', 'b', 'c', 'd'].indexOf(String(q?.resposta_correta || '').toLowerCase()),
+      })),
+    } as Quiz;
+  }
+
+  const respostaRaw = String(source?.resposta_correta || '').toLowerCase();
+  const respostaCorreta = Number.isInteger(source?.resposta_correta)
+    ? Number(source.resposta_correta)
+    : Math.max(0, ['a', 'b', 'c', 'd'].indexOf(respostaRaw));
+
+  return {
+    ...source,
+    titulo: source?.titulo || 'Quiz',
+    questoes: [
+      {
+        id: source?.id || `${source?.aula_id || 'quiz'}-q-0`,
+        pergunta: source?.pergunta || 'Pergunta sem enunciado',
+        opcoes: [source?.opcao_a || '', source?.opcao_b || '', source?.opcao_c || '', source?.opcao_d || ''],
+        resposta_correta: respostaCorreta,
+      },
+    ],
+  } as Quiz;
+};
+
+export function QuizComponent({ quizId }: QuizComponentProps) {
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -28,12 +65,7 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
   } | null>(null);
   const [tentativaAnterior, setTentativaAnterior] = useState<QuizAttempt | null>(null);
 
-  useEffect(() => {
-    loadQuiz();
-    loadTentativaAnterior();
-  }, [quizId]);
-
-  const loadQuiz = async () => {
+  const loadQuiz = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -47,15 +79,15 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
       if (fetchError) throw fetchError;
       if (!data) throw new Error('Quiz não encontrado');
 
-      setQuiz(data);
+      setQuiz(normalizeQuiz(data));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar quiz');
     } finally {
       setLoading(false);
     }
-  };
+  }, [quizId]);
 
-  const loadTentativaAnterior = async () => {
+  const loadTentativaAnterior = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -74,7 +106,12 @@ export function QuizComponent({ quizId, aulaId }: QuizComponentProps) {
     } catch (err) {
       console.error('Erro ao carregar tentativa anterior:', err);
     }
-  };
+  }, [quizId]);
+
+  useEffect(() => {
+    void loadQuiz();
+    void loadTentativaAnterior();
+  }, [loadQuiz, loadTentativaAnterior]);
 
   const handleRespostaChange = (questaoId: string, opcaoIndex: number) => {
     setRespostas(prev => ({

@@ -324,6 +324,7 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
               {uploadItems.length > 0 && (
                 <div className="flex gap-2">
                   <Button
+                    type="button"
                     onClick={handleUpload}
                     disabled={isUploading || pendingCount === 0 || !selectedMateriaId}
                   >
@@ -337,6 +338,7 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
                     )}
                   </Button>
                   <Button
+                    type="button"
                     variant="outline"
                     onClick={handleClearCompleted}
                     disabled={isUploading || (successCount === 0 && errorCount === 0)}
@@ -344,6 +346,7 @@ export function UploadManager({ materiaId: propMateriaId }: UploadManagerProps) 
                     Limpar Concluídos
                   </Button>
                   <Button
+                    type="button"
                     variant="outline"
                     onClick={handleReset}
                     disabled={isUploading}

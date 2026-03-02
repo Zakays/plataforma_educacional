@@ -11,7 +11,7 @@ export const getVideoProgress = async (
       .select('*')
       .eq('video_id', videoId)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     if (error && error.code !== 'PGRST116') {
       throw error;
